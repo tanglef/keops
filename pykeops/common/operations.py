@@ -97,6 +97,7 @@ def ConjugateGradientSolver(binding, linop, b, eps=1e-6):
         p = r + (nr2new / nr2) * p
         nr2 = nr2new
         k += 1
+    print(k)
     return a
 
 
