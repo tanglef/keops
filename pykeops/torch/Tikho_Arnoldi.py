@@ -1,3 +1,5 @@
+# https://www.sciencedirect.com/science/article/pii/S0377042708002252
+
 import numpy as np
 
 class tikho_arnoldi:
