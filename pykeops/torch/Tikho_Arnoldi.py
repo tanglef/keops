@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.linalg import qr, svd
 
 # https://sci-hub.tw/https://iopscience.iop.org/article/10.1088/1361-6420/ab7d2b
 # https://www.sciencedirect.com/science/article/pii/S0377042708002252
@@ -96,14 +97,29 @@ def arnoldi_add_one_step(Q, H, A):
     return Q, H
 
 
+################# Stoch SVD ################
 
+def svd_trunc_stoch(A, b, k=None):
+    n = A.shape[0]
+    if k==None:
+        k = A.shape[1]
+    S = np.random.normal(0, 1,(n, k))
+    M = np.dot(A, np.dot(A.T, np.dot(A, S)))
+    Q, _ = qr(M)
+    A_tilde = np.dot(Q, np.dot(Q.T, A))
+    U, Sigma, V = svd(Q.T @ A, full_matrices=False)
+    U = Q @ U # U tilde = QU, Sigma_tilde = Sigma and V_tilde = V
+    #print(V.shape, U.shape, Sigma.shape, np.diag(1/Sigma).shape)
+    x_k = np.dot(V.T, np.dot(np.diag(1/Sigma), np.dot(U.T, b)))
+    return (A_tilde, x_k)
 
 
 
 
 
 if __name__ == '__main__':
-    n = 102
+    n = 10000
+    test_bicgstab, test_cg, test_arno, test_svdstoch = False, False, False, True
     xi = np.linspace(1/n, 1, num=n, endpoint=True)
     K = np.exp(-(xi[:, np.newaxis] - xi)**2) # define Kernel
     b = np.random.rand(n, 1)
@@ -113,22 +129,35 @@ if __name__ == '__main__':
     else:
         nb_iter = n
 
-    print("\n","######### Arnoldi decomp ########", "\n")
-    Q, H = arnoldi(K, b, nb_iter)
-    print(np.allclose(K@Q[:, :-1], Q@H)) # True, just had to make sure for my sanity's sake
-    Q_step, H_step = arnoldi_add_one_step(Q, H, K)
-    print(np.allclose(K@Q_step[:, :-1], Q_step@H_step))
+    if test_arno:
+        print("\n","######### Arnoldi decomp ########", "\n")
+        Q, H = arnoldi(K, b, nb_iter)
+        print(np.allclose(K@Q[:, :-1], Q@H)) # True, just had to make sure for my sanity's sake
+        Q_step, H_step = arnoldi_add_one_step(Q, H, K)
+        print(np.allclose(K@Q_step[:, :-1], Q_step@H_step))
 
-    print("\n","######### Conjugate Gradient ########", "\n")
-    x = ConjugateGradientSolver(K, b)
-    print(np.square(np.dot(K, x)- b).sum() / n)   # Test compute MSE for non reg system
-    x = ConjugateGradientSolver(K + alpha * np.eye(n), b)
-    print(np.square(np.dot(K + alpha * np.eye(n), x) - b).sum() / n) # Test for reg system with tikho param = .1
-    print(np.square(np.dot(K, x) - b).sum() / n)   # Test MSE for solution found using the reg param compare with the init system
-    
-    print("\n","######### BiCGstab ########", "\n")
-    x = bicgstab(K, b)
-    print(np.square(np.dot(K, x)- b).sum() / n)
-    x = bicgstab(K + alpha * np.eye(n), b)
-    print(np.square(np.dot(K + alpha * np.eye(n), x) - b).sum() / n) # Test for reg system with tikho param = .1
-    print(np.square(np.dot(K, x) - b).sum() / n)   # Test MSE for solution found using the reg param compare with the init system
+    if test_svdstoch:
+        print("\n","######### SVD Truncated ########", "\n")
+        _, x = svd_trunc_stoch(K, b, k=nb_iter)
+        print(np.square(np.dot(K, x)- b).sum() / n)
+        _, x = svd_trunc_stoch(K + alpha * np.eye(n), b, k=nb_iter)
+        print(np.square(np.dot(K + alpha * np.eye(n), x) - b).sum() / n) # Test for reg system with tikho param = .1
+        print(np.square(np.dot(K, x) - b).sum() / n)   # Test MSE for solution found using the reg param compare with the init system
+
+
+    if test_bicgstab:
+        print("\n","######### BiCGstab ########", "\n")  # Slow,... you see it for n=1000....
+        x = bicgstab(K, b)
+        print(np.square(np.dot(K, x)- b).sum() / n)
+        x = bicgstab(K + alpha * np.eye(n), b)
+        print(np.square(np.dot(K + alpha * np.eye(n), x) - b).sum() / n) # Test for reg system with tikho param = .1
+        print(np.square(np.dot(K, x) - b).sum() / n)   # Test MSE for solution found using the reg param compare with the init system
+
+
+    if test_cg:
+        print("\n","######### Conjugate Gradient ########", "\n")
+        x = ConjugateGradientSolver(K, b)
+        print(np.square(np.dot(K, x)- b).sum() / n)   # Test compute MSE for non reg system
+        x = ConjugateGradientSolver(K + alpha * np.eye(n), b)
+        print(np.square(np.dot(K + alpha * np.eye(n), x) - b).sum() / n) # Test for reg system with tikho param = .1
+        print(np.square(np.dot(K, x) - b).sum() / n)   # Test MSE for solution found using the reg param compare with the init system
