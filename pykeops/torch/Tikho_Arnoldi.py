@@ -33,6 +33,33 @@ def ConjugateGradientSolver(linop, b, eps=1e-6):
     return a
 
 
+def bicgstab(A, b, epsilon=1e-6): # 1 iter is *2 cost of cg
+    nb_iter = max(A.shape[0], A.shape[1])
+    x0 = np.zeros((A.shape[1], 1))
+    r = b - A @ x0
+    rchap = np.random.rand(r.shape[0], 1)
+    rho = alpha = omega = 1
+    nu = p = np.zeros((A.shape[1], 1))
+    k = 0
+    while k <= nb_iter:
+        rho_step = rchap.T @ r
+        beta = rho / rho_step * alpha / omega
+        p = r + beta * (p - omega * nu)
+        nu = A @ p
+        alpha = rho / (rchap.T @ nu)
+        s = r - alpha * nu
+        t = A @ s
+        omega = (t.T @ s) / (t.T @ t)
+        x0 = x0 + alpha * p + omega * s
+        accu = (A @ x0) - b
+        if accu.T @ accu < epsilon:
+            return x0
+        r = s - omega * t
+        k += 1
+    return x0        
+
+
+
 ################# Arnoldi decomp (kinda Graam-Schmidt) ################
 
 def arnoldi(A, b, nb_iter, thresh=1e-16):
@@ -86,15 +113,22 @@ if __name__ == '__main__':
     else:
         nb_iter = n
 
-    # Arnoldi decomp
+    print("\n","######### Arnoldi decomp ########", "\n")
     Q, H = arnoldi(K, b, nb_iter)
     print(np.allclose(K@Q[:, :-1], Q@H)) # True, just had to make sure for my sanity's sake
     Q_step, H_step = arnoldi_add_one_step(Q, H, K)
     print(np.allclose(K@Q_step[:, :-1], Q_step@H_step))
 
-    # Conjugate Gradient
+    print("\n","######### Conjugate Gradient ########", "\n")
     x = ConjugateGradientSolver(K, b)
-    print(np.square(np.dot(K, x)- b).sum())   # Test compute MSE for non reg system
+    print(np.square(np.dot(K, x)- b).sum() / n)   # Test compute MSE for non reg system
     x = ConjugateGradientSolver(K + alpha * np.eye(n), b)
-    print(np.square(np.dot(K + alpha * np.eye(n), x) - b).sum()) # Test for reg system with tikho param = .1
-    print(np.square(np.dot(K, x) - b).sum())   # Test MSE for solution found using the reg param
+    print(np.square(np.dot(K + alpha * np.eye(n), x) - b).sum() / n) # Test for reg system with tikho param = .1
+    print(np.square(np.dot(K, x) - b).sum() / n)   # Test MSE for solution found using the reg param compare with the init system
+    
+    print("\n","######### BiCGstab ########", "\n")
+    x = bicgstab(K, b)
+    print(np.square(np.dot(K, x)- b).sum() / n)
+    x = bicgstab(K + alpha * np.eye(n), b)
+    print(np.square(np.dot(K + alpha * np.eye(n), x) - b).sum() / n) # Test for reg system with tikho param = .1
+    print(np.square(np.dot(K, x) - b).sum() / n)   # Test MSE for solution found using the reg param compare with the init system
