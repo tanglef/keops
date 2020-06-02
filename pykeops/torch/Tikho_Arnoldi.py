@@ -101,7 +101,7 @@ def arnoldi_add_one_step(Q, H, A):
 
 def svd_trunc_stoch(A, b, k=None):
     n = A.shape[0]
-    if k==None:
+    if k == None:
         k = A.shape[1]
     S = np.random.normal(0, 1,(n, k))
     M = np.dot(A, np.dot(A.T, np.dot(A, S)))
@@ -109,17 +109,44 @@ def svd_trunc_stoch(A, b, k=None):
     A_tilde = np.dot(Q, np.dot(Q.T, A))
     U, Sigma, V = svd(Q.T @ A, full_matrices=False)
     U = Q @ U # U tilde = QU, Sigma_tilde = Sigma and V_tilde = V
-    #print(V.shape, U.shape, Sigma.shape, np.diag(1/Sigma).shape)
     x_k = np.dot(V.T, np.dot(np.diag(1/Sigma), np.dot(U.T, b)))
     return (A_tilde, x_k)
 
 
+################# Lanczos bidiag ################
 
+def lanczos(A, b, l=None, sym=True):
+    if l == None:
+        l = A.shape[1]
+    if sym:      # avoid having to transpose the matrix all the time: more efficient ?
+        At = A
+    else:
+        At = A.T
+    sigma = np.sqrt(b.T @ b)
+    C = np.zeros((l+1, l))
+    V = np.zeros((A.shape[1], l))
+    U = np.zeros((A.shape[0], l+1))
+    U[:, 0] = b.flatten() / sigma
+    vtilde = At @ U[:, 0]
+    C[0, 0] = np.sqrt(vtilde.T @ vtilde)
+    V[:, 0] = vtilde / C[0, 0]
+    for j in range(1, l):
+        utilde = np.dot(A, V[:, j-1]) - C[j-1, j-1] * U[:, j-1]
+        C[j, j-1] = np.sqrt(utilde.T @ utilde)
+        U[:, j] = utilde / C[j, j-1]
+        vtilde = np.dot(At, U[:, j]) - C[j, j-1] * V[:, j-1]
+        C[j, j] = np.sqrt(vtilde.T @ vtilde)
+        V[:, j] = vtilde / C[j, j]
+    utilde = np.dot(A, V[:, l-1]) - C[l-1, l-1] * U[:, l-1]
+    C[l, l-1] = np.sqrt(utilde.T @ utilde)
+    U[:, l] = utilde / C[l, l-1]
+    return (U, C, V)
 
 
 if __name__ == '__main__':
-    n = 10000
-    test_bicgstab, test_cg, test_arno, test_svdstoch = False, False, False, True
+    n = 150
+    test_bicgstab, test_cg, test_arno, test_svdstoch = False, False, False, False
+    test_lanczos = True
     xi = np.linspace(1/n, 1, num=n, endpoint=True)
     K = np.exp(-(xi[:, np.newaxis] - xi)**2) # define Kernel
     b = np.random.rand(n, 1)
@@ -161,3 +188,10 @@ if __name__ == '__main__':
         x = ConjugateGradientSolver(K + alpha * np.eye(n), b)
         print(np.square(np.dot(K + alpha * np.eye(n), x) - b).sum() / n) # Test for reg system with tikho param = .1
         print(np.square(np.dot(K, x) - b).sum() / n)   # Test MSE for solution found using the reg param compare with the init system
+
+    if test_lanczos:
+        print("\n","######### Lanczos decomp ########", "\n") # improve because of lost of orthogonality
+        U, C, V = lanczos(K, b, nb_iter)
+        print(np.allclose(K@V, U@C)) # True, just had to make sure for my sanity's sake
+        print(np.allclose(U.T@ U, np.eye(nb_iter+1))) # I lose the orthogonality... Must reortho. How ? That's a good question: GS ?
+                                                        # uj = uj - sum (uj-1, uj)uj-1 ??
