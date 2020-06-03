@@ -115,26 +115,22 @@ def svd_trunc_stoch(A, b, k=None):
 
 ################# Lanczos bidiag ################
 
-def lanczos(A, b, l=None, sym=True):
+def lanczos(A, b, l=None):
     if l == None:
         l = A.shape[1]
-    if sym:      # avoid having to transpose the matrix all the time: more efficient ?
-        At = A
-    else:
-        At = A.T
     sigma = np.sqrt(b.T @ b)
     C = np.zeros((l+1, l))
     V = np.zeros((A.shape[1], l))
     U = np.zeros((A.shape[0], l+1))
     U[:, 0] = b.flatten() / sigma
-    vtilde = At @ U[:, 0]
+    vtilde = A.T @ U[:, 0]
     C[0, 0] = np.sqrt(vtilde.T @ vtilde)
     V[:, 0] = vtilde / C[0, 0]
     for j in range(1, l):
         utilde = np.dot(A, V[:, j-1]) - C[j-1, j-1] * U[:, j-1]
         C[j, j-1] = np.sqrt(utilde.T @ utilde)
         U[:, j] = utilde / C[j, j-1]
-        vtilde = np.dot(At, U[:, j]) - C[j, j-1] * V[:, j-1]
+        vtilde = np.dot(A.T, U[:, j]) - C[j, j-1] * V[:, j-1]
         C[j, j] = np.sqrt(vtilde.T @ vtilde)
         V[:, j] = vtilde / C[j, j]
     utilde = np.dot(A, V[:, l-1]) - C[l-1, l-1] * U[:, l-1]
@@ -142,9 +138,36 @@ def lanczos(A, b, l=None, sym=True):
     U[:, l] = utilde / C[l, l-1]
     return (U, C, V)
 
+def lanczos_fullreortho(A, b, l=None):
+    if l == None:
+        l = A.shape[1]
+    alpha = np.zeros(l)
+    beta = np.zeros(l+1)
+    beta[0] = np.sqrt(b.T @ b)
+    U = np.zeros((A.shape[0], l+1))
+    U[:, 0] = b.flatten() / beta[0]
+    V = np.zeros((A.shape[1], l))
+    for j in range(l):
+        if j >= 1:
+            r = np.dot(A.T, U[:, j]) - beta[j] * V[:, j-1]
+        else:
+            r = np.dot(A.T, U[:, j]) - beta[j] * V[:, j] # v0 = 0 and V init is all 0
+        for i in range(j-1):
+            r -= np.dot(V[:, i].T, r) * V[:, i]
+        alpha[j] = np.sqrt(r.T @ r)
+        V[:, j] = r / alpha[j]
+        p = np.dot(A, V[:, j]) - alpha[j] * U[:, j]
+        for i in range(j):
+            p -= np.dot(U[:, i].T, p) * U[:, i]
+        beta[j+1] = np.sqrt(p.T @ p)
+        U[:, j+1] = p / beta[j+1]
+    C = np.vstack((np.diag(alpha) + np.diag(beta[1:-1], -1),np.zeros(alpha.shape)))
+    C[alpha.size, alpha.size-1] = beta[-1]
+    return (U, C, V)
+
 
 if __name__ == '__main__':
-    n = 150
+    n = 4
     test_bicgstab, test_cg, test_arno, test_svdstoch = False, False, False, False
     test_lanczos = True
     xi = np.linspace(1/n, 1, num=n, endpoint=True)
@@ -193,5 +216,18 @@ if __name__ == '__main__':
         print("\n","######### Lanczos decomp ########", "\n") # improve because of lost of orthogonality
         U, C, V = lanczos(K, b, nb_iter)
         print(np.allclose(K@V, U@C)) # True, just had to make sure for my sanity's sake
-        print(np.allclose(U.T@ U, np.eye(nb_iter+1))) # I lose the orthogonality... Must reortho. How ? That's a good question: GS ?
-                                                        # uj = uj - sum (uj-1, uj)uj-1 ??
+        print(np.allclose(V.T@ V, np.eye(nb_iter))) # I lose the orthogonality... Must reortho. How ? That's a good question: GS ?
+                                                        # uj = uj - sum (uj-1, uj)uj-1 ?? idem V or one is enough ? Do I need both ?
+                                                        # Reortho inside the algo or after everything is done ?
+        print("\n","######### Lanczos decomp reortho ########", "\n") # improve because of lost of orthogonality
+        U, C, V = lanczos_fullreortho(K, b, nb_iter)
+        print(np.allclose(K@V, U@C))
+        print(np.allclose(V.T@ V, np.eye(nb_iter)))
+        print("\n","######### Lanczos decomp reortho without the special kernel ########", "\n")
+        n = 350
+        K = np.random.rand(n,n)
+        b = np.random.rand(n,1)
+        U, C, V = lanczos_fullreortho(K, b, n)
+        print(np.allclose(K@V, U@C))
+        print(np.allclose(V.T@ V, np.eye(n)))
+        print(C)
