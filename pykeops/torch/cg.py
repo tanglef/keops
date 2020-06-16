@@ -1,60 +1,110 @@
-import numpy as np #replace np by tools at the end bc of the binding 
+from pykeops.common.utils import get_tools
 
 
-################## Main routines
+###########################
+###########################
+# THIS CODE WONT WORK BC THE KERNEL CANT BE MULTIPPLIED LIKE THAT ! 
+# take a look at linop and try to understand it??
+# right now, every A @ sth can't be done....
+#######################################
+######################################
 
-def cg(A, b, x=None, M=None,  eps=None, maxiter=None):
-    check_dims(A, b, x, M)
+
+
+##################  Main routines
+
+def cg(A, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, inv_precond=None):
+    if binding not in ("torch", "numpy", "pytorch"):
+        raise ValueError("Language not supported, please use numpy, torch or pytorch.")
+    
+    tools = get_tools(binding)
+    A, b, x, M, replaced = check_dims(A, b, x, M, tools)
     n = A.shape[0]
+
     if eps == None:
         eps = 1e-10
     
     if maxiter == None:
         maxiter = n
+    
+    if regul == None:
+        regul = 1/n**.5
 
     # data is the only saved thing
     # first element is the residuals vectors computed : r_i size n
     # second is the direction vector : p_i size n
     # third are the q_i size n
-    # fourth and fifth are rho (rho_i-1/2) size 2
-    # sixth (added in the else of M is None) is the z_i size n
-    # +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-    # upmost an array of 4n + 2
-    # ie an array of 4n for the vectors
-    # and an array of 2 for the scalars
-    data_vect = np.zeros(4 * n, dtype=A.dtype)
-    data_scal = np.zeros(2, dtype=A.dtype)
+    # fourth(added in the else of M is None) is the z_i size n
 
-    # cg subroutines will have a While converge do smth
-    converge = True
+    data_vect = tools.zeros(4 * n, dtype=A.dtype)
+    scal1, scal2 = None, None # init the scala values
 
-    #replace the values with functions doing the corresponding job
-
+    # cg subroutines will have a While not max iter reached
     iter_ = 0
+    job, step = 1, 1
 
-    while True:
+    while iter_ <= maxiter:
+        job, step, data_vect, iter_, scal1 ,scal2 = revcom(M, b, job, step, data_vect, iter_, n, eps, scal1, scal2)
 
-        if iter_ > 0:
-            switcher_cg(2)
+        if job == 1: # matrix by vector product
+            print("something")
 
+        elif job == 2: # precond solver, multiple steps ?
+            #compute the zi
+            job = 2
+
+        elif job == 3: # matrix by x product
+            if iter_ == 0 and not replaced:
+                data_vect[0:n] = A @ x
+            job, step = 1, 2
+
+        elif job == 4: # check norm errors
+            rando = tools.rand() 
+            data_vect[0:n] = b - A @ data_vect[0:n] if rando <= 0.1 else data_vect[0:n] # simple stocha condi regul residuals
+            job, resid = should_stop(data_vect[0:n], A, b, eps, n)
+            if job == -1:
+                break;
+            else:
+                iter_ += 1
+                step = 1  # in case precond needs mutliple steps
+
+    return x, resid, iter_
+
+def should_stop(data, A, b, eps, n):
+    nrmresid2 = data[0:n].T @ data[0:n]
+    njob = -1 if nrmresid2 <= eps**2 else 2 # the cycle restarts at the precond solver step
+    return njob, nrmresid2
+
+def revcom(M, b, job, step, data, iter_, n, eps, scal1, scal2):
+    if job == 1: # init step
+        if step == 1:
+            njob = 3
         else:
-            switcher_cg(1)
+            data[0:n] = b - data[0:n]
+            njob = 4
 
+    elif job == 2: # resume
+        if step == 1 and M is not None: # we need the zi 
+            njob = 2
+            step += 1
+        elif step == 2:
+            if M is None:
+                scal1 = data[0:n].T @ data[0:n]
+                if iter_ > 1:
+                    beta = scal1 / scal2 #rho i-1 / rho i-2
+                    data[n:2*n] = data[0:n] + beta * data[n:2*n] # r i-1 + beta i-1 p i-1
+                else:
+                    data[n:2*n] = data[0:n] # p1=r0
+            else:
+                scal1 = data[0:n].T @ data[3*n:4*n]
+                if iter_ > 1:
+                    beta = scal1 / scal2 #rho i-1 / rho i-2
+                    data[n:2*n] = data[3*n:4*n] + beta * data[n:2*n] # r i-1 + beta i-1 p i-1
+                else:
+                    data[n:2*n] = data[3*n:4*n] # p1=z0
+                    
 
-        # call to revcom 
-        # returns multiple things including the job to do
-
-    # do not return the whole data
-    # only the norm of the last resid
-    # the solution vector and whether the algo converged or not
-    # be careful of the dim of the sol returned, must be (n, 1) !
-    return x, converge
-
-
-def revcom(M, job, stock_res):
-    
-
-    return 
+    return njob, step, data, iter_, scal1, scal2
 
 
 
@@ -66,7 +116,7 @@ def revcom(M, job, stock_res):
 
 def switcher_cg(job):
     switcher = {
-        1: "init",
+        1: "init", #revcom(M, 1, A, vecteurx....)
         2: "resume"
     }
     if job not in (1, 2):
@@ -94,14 +144,16 @@ def switcher_revcom(job, M):
 
 ############### SafeGuard routines
 
-def check_dims(A, b, x, M):
+def check_dims(A, b, x, M, tools):
     nrow = A.shape[0]
+    x_replaced = False
 
     if nrow != A.shape[1]: # check symmetry
         raise ValueError("The matrix is expected to be squared, not of shape {}.".format(A.shape))
 
     if x is None: # check x shape and initiate it if needed
-        x = np.zeros((nrow, 1), dtype=A.dtype)
+        x = tools.zeros((nrow, 1), dtype=A.dtype)
+        x_replaced = True
     elif (nrow, 1) != x.shape:
             if x.shape == (nrow,):
                 x = x.reshape((nrow, 1)) # just recast it
@@ -117,5 +169,22 @@ def check_dims(A, b, x, M):
     if M is not None: # check preconditioner dims
         if M.shape != A.shape:
             raise ValueError("Mismatch between shapes of M {} and shape of A {}.".format(M.shape, A.shape))
+    return A, b, x, M, x_replaced # A was never changed
 
 
+
+############ test
+import torch
+from pykeops.torch import Genred
+
+size = 10
+
+formula = "Exp(-SqDist(x, y)) * a"  # Exponential kernel
+aliases =  ["x = Vi(1)",  # 1st input: target points, one dim-3 vector per line
+            "y = Vj(1)",  # 2nd input : dim-3 per columns
+            "a = Vj(1)"]
+
+xi = torch.linspace(1/size, 1, size)
+b = torch.rand(size, 1)
+K = Genred(formula, aliases, axis = 1)
+print(K)
