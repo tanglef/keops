@@ -65,9 +65,8 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
             job, step = 1, 2
 
         elif job == 4: # check norm errors
-            rando = tools.rand(1, 1)
-            print("random", rando <= 0.1)
-            data_vect[0:n] = b.reshape(-1) - linop(data_vect[0:n].reshape(-1)) if rando <= 0.1 else data_vect[0:n] # simple stocha condi regul residuals
+            rando = tools.rand(1, 1) #problem with torch
+            data_vect[0:n] = b.reshape(-1) - linop(x.reshape(-1, 1)) if rando <= 0.1 else data_vect[0:n] # simple stocha condi regul residuals
             job, resid = should_stop(data_vect[0:n], eps, n)
             if job == -1:
                 break;
@@ -210,11 +209,13 @@ aliases =  ["x = Vi(1)",  # 1st input: target points, one dim-3 vector per line
 K = Genred(formula, aliases, axis = 1)
 xnum = np.linspace(1/size, 1, size).reshape(-1,1)
 bnum = np.random.rand(size, 1)
+xt = torch.linspace(1/size, 1, size).reshape(-1,1)
+bt = torch.rand(size, 1)
 
 def linop(vect):
     global xnum
     vect = vect.reshape(-1,1)
     return K(xnum, xnum, vect).reshape(-1)
-pykeops.verbose = True
+
 print(linop(bnum))
 print(cg(linop, bnum, "numpy"))
