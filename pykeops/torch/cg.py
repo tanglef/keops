@@ -18,10 +18,18 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
         raise ValueError("Language not supported, please use numpy, torch or pytorch.")
     
     tools = get_tools(binding)
+    if binding == 'torch' or binding == 'pytorch':
+        is_cuda = torch.cuda.is_available()
+        if is_cuda:
+            device = torch.device('cuda:0')
+    else:
+        is_cuda = False
+
+
     ################################
     ##### Not as easy with linop
     ###############################
-    b, x, M, replaced = check_dims(b, x, M, tools)
+    b, x, M, replaced = check_dims(b, x, M, tools, is_cuda)
     x = x.reshape(-1)
     n = b.shape[0]
 
@@ -40,10 +48,15 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
     # third are the q_i size n
     # fourth(added in the else of M is None) is the z_i size n
 
-    data_vect = tools.zeros(4 * n, dtype=b.dtype)
     scal1, scal2 = None, None # init the scala values
 
-    # cg subroutines will have a While not max iter reached
+    if binding == 'numpy': # set the function to do the random draw in step 4
+        random_draw = random_draw_np
+        data_vect = tools.zeros(4*n, dtype=b.dtype) #device only for torch!!
+    else:
+        random_draw = random_draw_torch
+        data_vect = tools.zeros(4*n, dtype=b.dtype, device=device) #device only for torch!!
+
     iter_ = 0
     job, step = 1, 1
 
@@ -65,14 +78,15 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
             job, step = 1, 2
 
         elif job == 4: # check norm errors
-            rando = tools.rand(1, 1) #problem with torch
-            data_vect[0:n] = b.reshape(-1) - linop(x.reshape(-1, 1)) if rando <= 0.1 else data_vect[0:n] # simple stocha condi regul residuals
+            rando = random_draw(tools, b)
+            print(rando <= .1)
+            data_vect[0:n] = b.reshape(-1) - linop(x.reshape(-1, 1)) if rando <= 0.1 else data_vect[0:n] # stocha condi regul residuals
             job, resid = should_stop(data_vect[0:n], eps, n)
             if job == -1:
                 break;
             else:
                 iter_ += 1
-                step = 1  # in case precond needs mutliple steps
+                step = 1
 
     return x, resid, iter_
 
@@ -81,6 +95,12 @@ def should_stop(data, eps, n):
     njob = -1 if nrmresid2 <= eps**2 else 2 # the cycle restarts at the precond solver step
     print("stop", njob)
     return njob, nrmresid2
+
+def random_draw_np(tools, b):
+    return tools.rand(1, 1, dtype=b.dtype)
+
+def random_draw_torch(tools, b):
+    return torch.rand(1, 1, device=b.device, dtype=b.dtype)
 
 def revcom(M, b, x, job, step, data, iter_, n, eps, scal1, scal2):
     print("revcom", job, step, iter_)
@@ -102,7 +122,6 @@ def revcom(M, b, x, job, step, data, iter_, n, eps, scal1, scal2):
             if M is None:
                 scal1 = data[0:n].T @ data[0:n]
                 if iter_ > 1:
-                    print(scal1, scal2)
                     beta = scal1 / scal2 #rho i-1 / rho i-2
                     data[n:2*n] = data[0:n] + beta * data[n:2*n] # r i-1 + beta i-1 p i-1
                 else:
@@ -125,50 +144,19 @@ def revcom(M, b, x, job, step, data, iter_, n, eps, scal1, scal2):
 
 
 
-############# Define the switchers
-# each 'values' in the switcher will be
-# cg -> revcom : a call to revcom, the only thing changing are in the key arguments
-#                1-2 flag for init/resume + a step flag
-# revcom -> cg : a flag for what job to do next
-
-def switcher_cg(job):
-    switcher = {
-        1: "init", #revcom(M, 1, A, vecteurx....)
-        2: "resume"
-    }
-    if job not in (1, 2):
-        raise ValueError("Unavailable key called")
-    return switcher.get(job)
-
-
-def switcher_revcom(job, M):
-    switcher = {
-        -1: "Exit",
-        1: "Do Ap_i",
-        3: "Do Ax_0",
-        4: "Stoping test",
-        }
-    if M is not None:
-        switcher.update({2: "Do precond"})
-        if job not in (-1, 1, 3, 4, 2):
-            raise ValueError("Unavailable key called")
-    elif job not in (-1, 1, 3, 4):
-        if job == 2:
-            raise ValueError("Preconditioner cannot be called if it's None")
-        raise ValueError("Unavailable key called")
-    return switcher.get(job)
-
-
 ############### SafeGuard routines
 
-def check_dims(b, x, M, tools): # The actual kernel can't be used for the sizes (we only know the linop)
+def check_dims(b, x, M, tools, cuda_avlb): # The actual kernel can't be used for the sizes (we only know the linop)
     nrow = b.shape[0]
     x_replaced = False
 
     if x is None: # check x shape and initiate it if needed
-        x = tools.zeros((nrow, 1), dtype=b.dtype)
+        if cuda_avlb:
+            x = tools.zeros((nrow, 1), dtype=b.dtype, device=torch.device('cuda:0'))
+        else:
+            x = tools.zeros((nrow, 1), dtype=b.dtype)
         x_replaced = True
-    elif (nrow, 1) != x.shape:
+    elif (nrow, 1) != x.shape: #add sth to check if x is on the same device as b if torch is used!
             if x.shape == (nrow,):
                 x = x.reshape((nrow, 1)) # just recast it
             else:
@@ -181,7 +169,6 @@ def check_dims(b, x, M, tools): # The actual kernel can't be used for the sizes 
             raise ValueError("Mismatch between shapes of x {} and shape of b {}.".format(x.shape, b.shape))
 
     if M is not None: # check preconditioner dimsfrom pykeops.common.utils import get_tools
-
         if M.shape != (nrow, nrow):
             raise ValueError("Mismatch between shapes of M {} and shape of the kernel {}.".format(M.shape,(nrow, nrow)))
     return b, x, M, x_replaced 
@@ -191,8 +178,6 @@ def check_dims(b, x, M, tools): # The actual kernel can't be used for the sizes 
 ############ test
 import torch
 import numpy as np
-#from pykeops.torch import Genred
-from pykeops.numpy import Genred
 import pykeops
 
 
@@ -203,19 +188,39 @@ aliases =  ["x = Vi(1)",  # 1st input: target points, one dim-3 vector per line
             "y = Vj(1)",  # 2nd input : dim-3 per columns
             "a = Vj(1)"]
 
-#xi = torch.linspace(1/size, 1, size).view(-1,1)from pykeops.common.utils import get_tools
 
-#b = torch.rand(size, 1).view(-1,1)
+from pykeops.numpy import Genred
+
 K = Genred(formula, aliases, axis = 1)
-xnum = np.linspace(1/size, 1, size).reshape(-1,1)
-bnum = np.random.rand(size, 1)
-xt = torch.linspace(1/size, 1, size).reshape(-1,1)
-bt = torch.rand(size, 1)
 
-def linop(vect):
+xnum = np.linspace(1/size, 1, size).reshape(-1,1)
+bnum = np.arange(size, dtype='float')
+
+def linop(vect): #just for now, will be changed after
     global xnum
     vect = vect.reshape(-1,1)
     return K(xnum, xnum, vect).reshape(-1)
 
 print(linop(bnum))
 print(cg(linop, bnum, "numpy"))
+
+
+from pykeops.torch import Genred
+if torch.cuda.is_available():
+    device=torch.device('cuda:0')
+
+
+# #float64 produces error... why ?
+# K = Genred(formula, aliases, axis = 1)
+# xt = torch.linspace(1/size, 1, size, dtype=torch.float, device=device).reshape(-1,1)
+# bt = torch.arange(size, dtype=torch.float, device=device)
+
+# def linop_t(vect):
+#     global xt
+#     vect = vect.reshape(-1,1)
+#     return K(xt, xt, vect).reshape(-1)
+
+# print(linop_t(bt))
+# print(cg(linop_t, bt, "torch"))
+
+
