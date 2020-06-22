@@ -37,7 +37,7 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
         eps = 1e-10
     
     if maxiter == None:
-        maxiter = n
+        maxiter = 10*n
     
     if regul == None:
         regul = 1/n**.5
@@ -61,7 +61,7 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
     job, step = 1, 1
 
     while iter_ <= maxiter:
-        print("cg", job, step, iter_)
+        #print("cg", job, step, iter_)
         job, step, x, data_vect, iter_, scal1 ,scal2 = revcom(M, b, x, job, step, data_vect, iter_, n, eps, scal1, scal2)
 
         if job == 1: # matrix by vector product
@@ -79,7 +79,6 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
 
         elif job == 4: # check norm errors
             rando = random_draw(tools, b)
-            print(rando <= .1)
             data_vect[0:n] = b.reshape(-1) - linop(x.reshape(-1, 1)) if rando <= 0.1 else data_vect[0:n] # stocha condi regul residuals
             job, resid = should_stop(data_vect[0:n], eps, n)
             if job == -1:
@@ -93,7 +92,7 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
 def should_stop(data, eps, n):
     nrmresid2 = data[0:n].T @ data[0:n]
     njob = -1 if nrmresid2 <= eps**2 else 2 # the cycle restarts at the precond solver step
-    print("stop", njob)
+    #print("stop", njob)
     return njob, nrmresid2
 
 def random_draw_np(tools, b):
@@ -103,7 +102,7 @@ def random_draw_torch(tools, b):
     return torch.rand(1, 1, device=b.device, dtype=b.dtype)
 
 def revcom(M, b, x, job, step, data, iter_, n, eps, scal1, scal2):
-    print("revcom", job, step, iter_)
+    #print("revcom", job, step, iter_)
     if job == 1: # init step
         if step == 1:
             njob = 3
@@ -139,7 +138,7 @@ def revcom(M, b, x, job, step, data, iter_, n, eps, scal1, scal2):
             x += alpha * data[n:2*n]
             data[0:n] -= alpha * data[2*n:3*n]
             njob = 4
-    print("revcomfin", njob, step, iter_)
+    #print("revcomfin", njob, step, iter_)
     return njob, step, x, data, iter_, scal1, scal2
 
 
@@ -177,6 +176,7 @@ def check_dims(b, x, M, tools, cuda_avlb): # The actual kernel can't be used for
 
 ############ test
 import torch
+import time
 import numpy as np
 import pykeops
 
@@ -201,9 +201,11 @@ def linop(vect): #just for now, will be changed after
     vect = vect.reshape(-1,1)
     return K(xnum, xnum, vect).reshape(-1)
 
-print(linop(bnum))
-print(cg(linop, bnum, "numpy"))
-
+#print(linop(bnum))
+start = time.time()
+print(cg(linop, bnum, "numpy")[1:])
+end = time.time()
+print("Numpy time: {0:.5f} s.".format(end - start))
 
 from pykeops.torch import Genred
 if torch.cuda.is_available():
@@ -211,16 +213,16 @@ if torch.cuda.is_available():
 
 
 # #float64 produces error... why ?
-# K = Genred(formula, aliases, axis = 1)
-# xt = torch.linspace(1/size, 1, size, dtype=torch.float, device=device).reshape(-1,1)
-# bt = torch.arange(size, dtype=torch.float, device=device)
+K = Genred(formula, aliases, axis = 1, dtype='float64')
+xt = torch.linspace(1/size, 1, size, dtype=torch.float64, device=device).reshape(-1,1)
+bt = torch.arange(size, dtype=torch.float64, device=device)
 
-# def linop_t(vect):
-#     global xt
-#     vect = vect.reshape(-1,1)
-#     return K(xt, xt, vect).reshape(-1)
-
-# print(linop_t(bt))
-# print(cg(linop_t, bt, "torch"))
-
+def linop_t(vect):
+    global xt
+    vect = vect.reshape(-1,1)
+    return K(xt, xt, vect).reshape(-1)
+start = time.time()
+print(cg(linop_t, bt, "torch")[1:])
+end = time.time()
+print("Torch time: {0:.5f} s.".format(end - start))
 
