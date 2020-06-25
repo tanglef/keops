@@ -1,16 +1,5 @@
 from pykeops.common.utils import get_tools
 
-
-###########################
-###########################
-# THIS CODE WONT WORK BC THE KERNEL CANT BE MULTIPPLIED LIKE THAT ! 
-# take a look at linop and try to understand it??
-# right now, every A @ sth can't be done....
-#######################################
-######################################
-
-
-
 ##################  Main routines
 
 def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, inv_precond=None):
@@ -34,7 +23,7 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
     n = b.shape[0]
 
     if eps == None:
-        eps = 1e-10
+        eps = 1e-6
     
     if maxiter == None:
         maxiter = 10*n
@@ -65,7 +54,7 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
         job, step, x, data_vect, iter_, scal1 ,scal2 = revcom(M, b, x, job, step, data_vect, iter_, n, eps, scal1, scal2)
 
         if job == 1: # matrix by vector product
-            data_vect[2*n:3*n] = linop(data_vect[n:2*n].reshape(-1, 1))
+            data_vect[2*n:3*n] = linop(data_vect[n:2*n])
             job, step = 2, 3
 
         elif job == 2: # precond solver, multiple steps ?
@@ -74,12 +63,12 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
 
         elif job == 3: # matrix by x product
             if iter_ == 0 and not replaced:
-                data_vect[0:n] = linop(x.reshape(-1, 1))
+                data_vect[0:n] = linop(x)
             job, step = 1, 2
 
         elif job == 4: # check norm errors
             rando = random_draw(tools, b)
-            data_vect[0:n] = b.reshape(-1) - linop(x.reshape(-1, 1)) if rando <= 0.1 else data_vect[0:n] # stocha condi regul residuals
+            data_vect[0:n] = b.reshape(-1) - linop(x) if rando <= 0.1 else data_vect[0:n] # stocha condi regul residuals
             job, resid = should_stop(data_vect[0:n], eps, n)
             if job == -1:
                 break;
@@ -181,7 +170,7 @@ import numpy as np
 import pykeops
 
 
-size = 5
+size = int(1e3)
 
 formula = "Exp(-SqDist(x, y)) * a"  # Exponential kernel
 aliases =  ["x = Vi(1)",  # 1st input: target points, one dim-3 vector per line
@@ -201,28 +190,79 @@ def linop(vect): #just for now, will be changed after
     vect = vect.reshape(-1,1)
     return K(xnum, xnum, vect).reshape(-1)
 
-#print(linop(bnum))
+linop(bnum) #warmup
+
 start = time.time()
-print(cg(linop, bnum, "numpy")[1:])
+cg(linop, bnum, "numpy")
 end = time.time()
 print("Numpy time: {0:.5f} s.".format(end - start))
+
+# problem with shapes, creates a (n,) and need a (n,1)
+from pykeops.numpy import LazyTensor
+from scipy.sparse.linalg import aslinearoperator
+
+x_i, x_j = LazyTensor(xnum[:, None, :]), LazyTensor(xnum[None, :, :])
+K_xx = (- ((x_i - x_j) ** 2).sum(2)).exp()  # Symbolic (N,N) Gaussian kernel matrix
+K = aslinearoperator(K_xx)
+
+K(bnum) #warmup
+
+start = time.time()
+cg(K, bnum, "numpy")
+end = time.time()
+print("Numpy time with aslinop: {0:.5f} s.".format(end - start))
+
+
 
 from pykeops.torch import Genred
 if torch.cuda.is_available():
     device=torch.device('cuda:0')
 
 
-# #float64 produces error... why ?
+# maybe define the kernel in aother way to be able to use aslinop (the article way)
 K = Genred(formula, aliases, axis = 1, dtype='float64')
-xt = torch.linspace(1/size, 1, size, dtype=torch.float64, device=device).reshape(-1,1)
+xt = torch.linspace(1/size, 1, size, dtype=torch.float64, device=device).reshape(-1, 1)
 bt = torch.arange(size, dtype=torch.float64, device=device)
 
 def linop_t(vect):
     global xt
     vect = vect.reshape(-1,1)
     return K(xt, xt, vect).reshape(-1)
+
+linop_t(bt) #warmup
+
 start = time.time()
-print(cg(linop_t, bt, "torch")[1:])
+cg(linop_t, bt, "torch")
 end = time.time()
 print("Torch time: {0:.5f} s.".format(end - start))
+
+
+
+from pykeops.numpy import KernelSolve as KernelSolve_np, LazyTensor
+Kinv = KernelSolve_np(formula, aliases, "a", axis=1, dtype='float64')
+start = time.time()
+res = Kinv(xnum, xnum, bnum.reshape(-1,1))
+end = time.time()
+print("Old Kernesolve np time: {0:.5f} s.".format(end - start))
+
+from pykeops.torch import KernelSolve as KernelSolve_tch
+Kinv = KernelSolve_tch(formula, aliases, "a", axis=1, dtype='float64')
+start = time.time()
+res = Kinv(xt, xt, bt.reshape(-1,1))
+end = time.time()
+
+print("Old Kernesolve torch time: {0:.5f} s.".format(end - start))
+
+
+from scipy.sparse.linalg import cg as cgscipy
+start = time.time()
+res = cgscipy(aslinearoperator(K_xx), bnum)
+end = time.time()
+print("scipy cg time: {0:.5f} s.".format(end - start))
+print(res[1])
+
+######################################################################
+## Define the class for pytorch and numpy cg like it was already done
+#######################################################################
+
 
