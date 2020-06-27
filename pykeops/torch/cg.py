@@ -8,13 +8,10 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
         raise ValueError("Language not supported, please use numpy, torch or pytorch.")
     
     tools = get_tools(binding)
-    if binding == 'torch' or binding == 'pytorch':
-        is_cuda = torch.cuda.is_available()
-        if is_cuda:
-            device = torch.device('cuda:0')
-    else:
-        is_cuda = False
 
+    # we don't need cuda with numpy (at least i think so)
+    is_cuda = True if (binding == 'torch' or binding == 'pytorch') and torch.cuda.is_available() else False
+    device = torch.device("cuda:0") if is_cuda else torch.device('cpu')
 
     b, x, M, replaced = check_dims(b, x, M, tools, is_cuda)
     x = x.reshape(-1)
@@ -132,15 +129,13 @@ def revcom(M, b, x, job, step, data, iter_, n, eps, scal1, scal2):
 
 ############### SafeGuard routines
 
-def check_dims(b, x, M, tools, cuda_avlb): # The actual kernel can't be used for the sizes (we only know the linop)
+def check_dims(b, x, M, tools, cuda_avlb): # x is always of b's shape. If the error comes from b it isn't noticed...........
     nrow = b.shape[0]
     x_replaced = False
 
     if x is None: # check x shape and initiate it if needed
-        if cuda_avlb:
-            x = tools.zeros((nrow, 1), dtype=b.dtype, device=torch.device('cuda:0'))
-        else:
-            x = tools.zeros((nrow, 1), dtype=b.dtype)
+        x = tools.zeros((nrow, 1), dtype=b.dtype, device=torch.device('cuda:0')) if cuda_avlb \
+            else  tools.zeros((nrow, 1), dtype=b.dtype)
         x_replaced = True
     elif (nrow, 1) != x.shape: #add sth to check if x is on the same device as b if torch is used!
             if x.shape == (nrow,):
@@ -149,7 +144,7 @@ def check_dims(b, x, M, tools, cuda_avlb): # The actual kernel can't be used for
                 raise ValueError("Mismatch between shapes of the kernel {} and shape of x {}.".format((nrow, nrow), x.shape))
 
     if x.shape != b.shape: # check RHS shape
-        if b.shape == (nrow,):
+        if b.shape == (x.shape[0],):
             b = b.reshape((nrow, 1)) # not necessary to throw an error for that, just reshape
         else:
             raise ValueError("Mismatch between shapes of x {} and shape of b {}.".format(x.shape, b.shape))

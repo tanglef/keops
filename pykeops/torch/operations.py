@@ -10,6 +10,9 @@ from pykeops.torch import include_dirs
 from pykeops.torch.generic.generic_red import GenredAutograd
 
 
+from pykeops.torch.cg import cg
+
+
 class KernelSolveAutograd(torch.autograd.Function):
     """
     This class is the entry point to pytorch auto grad engine.
@@ -61,11 +64,23 @@ class KernelSolveAutograd(torch.autograd.Function):
         # relying on the 'ctx.saved_variables' attribute is necessary  if you want to be able to differentiate the output
         #  of the backward once again. It helps pytorch to keep track of 'who is who'.
         ctx.save_for_backward(*args, result)
-
         return result
+
+        #new
+        # print('ok1')
+        #result = cg(linop, varinv.data, 'torch', eps=eps)
+        # print('ok2')
+        # print(result[0]) # it's still a tensor that's good
+        # print(*args)
+        #ctx.save_for_backward(*args, result[0])
+        # print('ok3')
+        #return result[0] # works only with that...
+        #                  # problem, I'd like to keep everything please
 
     @staticmethod
     def backward(ctx, G):
+        print('calledbackward')
+
         formula = ctx.formula
         aliases = ctx.aliases
         varinvpos = ctx.varinvpos
@@ -77,7 +92,6 @@ class KernelSolveAutograd(torch.autograd.Function):
         myconv = ctx.myconv
         ranges = ctx.ranges
         accuracy_flags = ctx.accuracy_flags
-
         args = ctx.saved_tensors[:-1]  # Unwrap the saved variables
         nargs = len(args)
         result = ctx.saved_tensors[-1]
@@ -327,6 +341,4 @@ class KernelSolve():
         """
 
         return KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
-
-
 
