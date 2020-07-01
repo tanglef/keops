@@ -11,7 +11,7 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
 
     # we don't need cuda with numpy (at least i think so)
     is_cuda = True if (binding == 'torch' or binding == 'pytorch') and torch.cuda.is_available() else False
-    device = torch.device("cuda:0") if is_cuda else torch.device('cpu')
+    device = torch.device("cuda") if is_cuda else torch.device('cpu')
 
     b, x, M, replaced = check_dims(b, x, M, tools, is_cuda)
     x = x.reshape(-1)
@@ -134,7 +134,7 @@ def check_dims(b, x, M, tools, cuda_avlb): # x is always of b's shape. If the er
     x_replaced = False
 
     if x is None: # check x shape and initiate it if needed
-        x = tools.zeros((nrow, 1), dtype=b.dtype, device=torch.device('cuda:0')) if cuda_avlb \
+        x = tools.zeros((nrow, 1), dtype=b.dtype, device=torch.device('cuda')) if cuda_avlb \
             else  tools.zeros((nrow, 1), dtype=b.dtype)
         x_replaced = True
     elif (nrow, 1) != x.shape: #add sth to check if x is on the same device as b if torch is used!

@@ -59,27 +59,22 @@ class KernelSolveAutograd(torch.autograd.Function):
             return res
 
         global copy
-        result = ConjugateGradientSolver('torch', linop, varinv.data, eps)
+        #result = ConjugateGradientSolver('torch', linop, varinv.data, eps)
 
         # relying on the 'ctx.saved_variables' attribute is necessary  if you want to be able to differentiate the output
         #  of the backward once again. It helps pytorch to keep track of 'who is who'.
-        ctx.save_for_backward(*args, result)
-        return result
+        # ctx.save_for_backward(*args, result)
+        # print(*args)
+        # print(result)
+        # return result
 
         #new
-        # print('ok1')
-        #result = cg(linop, varinv.data, 'torch', eps=eps)
-        # print('ok2')
-        # print(result[0]) # it's still a tensor that's good
-        # print(*args)
-        #ctx.save_for_backward(*args, result[0])
-        # print('ok3')
-        #return result[0] # works only with that...
-        #                  # problem, I'd like to keep everything please
+        result, iter_, resid = cg(linop, varinv.data, 'torch', eps=eps)
+        ctx.save_for_backward(*args, result)
+        return result, torch.as_tensor(iter_),torch.as_tensor(resid) 
 
     @staticmethod
     def backward(ctx, G):
-        print('calledbackward')
 
         formula = ctx.formula
         aliases = ctx.aliases
@@ -339,6 +334,5 @@ class KernelSolve():
             that is inferred from the **formula**.
             
         """
-
         return KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
 
