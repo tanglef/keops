@@ -33,7 +33,6 @@ from .kernel_product.kernels import Kernel, kernel_product, kernel_formulas
 from .generic.generic_ops import generic_sum, generic_logsumexp, generic_argmin, generic_argkmin
 from .kernel_product.formula import Formula
 from pykeops.common.lazy_tensor import LazyTensor, Vi, Vj, Pm
-from .cg import cg
 # N.B.: If "from pykeops.numpy import LazyTensor" has already been run,
 #       the line above will *not* import "torchtools" and we'll end up with an error...
 #       So even though it may be a bit ugly, we re-load the lazy_tensor file
