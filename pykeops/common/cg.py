@@ -14,7 +14,6 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
     device = torch.device("cuda") if is_cuda else torch.device('cpu')
 
     b, x, M, replaced = check_dims(b, x, M, tools, is_cuda)
-    x = x.reshape(-1)
     n = b.shape[0]
 
     if eps == None:
@@ -62,19 +61,17 @@ def cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, regul=None, i
             job, step = 1, 2
 
         elif job == 4: # check norm errors
-            rando = random_draw(tools, b)
-            data_vect[0:n] = b.reshape(-1) - linop(x.reshape(-1, 1)).reshape(-1) if rando <= 0.1 else data_vect[0:n] # stocha condi regul residuals
             job, resid = should_stop(data_vect[0:n], eps, n)
-            if job == -1:
+            if job == -1: # recompute residuals
                 break;
             else:
                 iter_ += 1
                 step = 1
 
-    return x, resid, iter_
+    return x, iter_
 
 def should_stop(data, eps, n):
-    nrmresid2 = data[0:n].T @ data[0:n]
+    nrmresid2 = data.T @ data
     njob = -1 if nrmresid2 <= eps**2 else 2 # the cycle restarts at the precond solver step
     #print("stop", njob)
     return njob, nrmresid2
@@ -119,37 +116,78 @@ def revcom(M, b, x, job, step, data, iter_, n, eps, scal1, scal2):
             njob = 1
         elif step == 3:
             alpha = scal1 / (data[n:2*n].T @ data[2*n:3*n])
-            x += alpha * data[n:2*n]
+            x += alpha * data[n:2*n].reshape(-1,1)
             data[0:n] -= alpha * data[2*n:3*n]
             njob = 4
     #print("revcomfin", njob, step, iter_)
     return njob, step, x, data, iter_, scal1, scal2
 
 
-
 ############### SafeGuard routines
 
 def check_dims(b, x, M, tools, cuda_avlb): # x is always of b's shape. If the error comes from b it isn't noticed...........
-    nrow = b.shape[0]
+    try:
+        nrow, ncol = b.shape
+    except ValueError:
+        b = b.reshape(-1, 1)
+
     x_replaced = False
 
     if x is None: # check x shape and initiate it if needed
-        x = tools.zeros((nrow, 1), dtype=b.dtype, device=torch.device('cuda')) if cuda_avlb \
-            else  tools.zeros((nrow, 1), dtype=b.dtype)
+        x = tools.zeros((nrow, ncol), dtype=b.dtype, device=torch.device('cuda')) if cuda_avlb \
+            else  tools.zeros((nrow, ncol), dtype=b.dtype)
         x_replaced = True
-    elif (nrow, 1) != x.shape: #add sth to check if x is on the same device as b if torch is used!
+    elif (nrow, ncol) != x.shape: #add sth to check if x is on the same device as b if torch is used!
             if x.shape == (nrow,):
-                x = x.reshape((nrow, 1)) # just recast it
+                x = x.reshape((nrow, ncol)) # just recast it
             else:
-                raise ValueError("Mismatch between shapes of the kernel {} and shape of x {}.".format((nrow, nrow), x.shape))
+                raise ValueError("Mismatch between shapes of b {} and shape of x {}.".format((nrow, nrow), x.shape))
 
-    if x.shape != b.shape: # check RHS shape
-        if b.shape == (x.shape[0],):
-            b = b.reshape((nrow, 1)) # not necessary to throw an error for that, just reshape
-        else:
-            raise ValueError("Mismatch between shapes of x {} and shape of b {}.".format(x.shape, b.shape))
-
-    if M is not None: # check preconditioner dimsfrom pykeops.common.utils import get_tools
-        if M.shape != (nrow, nrow):
-            raise ValueError("Mismatch between shapes of M {} and shape of the kernel {}.".format(M.shape,(nrow, nrow)))
+    # if M is not None: # check preconditioner dimsfrom pykeops.common.utils import get_tools
+    #     if M.shape != (nrow, nrow):
+    #         raise ValueError("Mismatch between shapes of M {} and shape of the x {}.".format(M.shape,(nrow, nrow)))
     return b, x, M, x_replaced 
+
+
+
+def another_cg(linop, b, binding, x=None, M=None,  eps=None, maxiter=None, inv_precond=None):
+    if binding not in ("torch", "numpy", "pytorch"):
+        raise ValueError("Language not supported, please use numpy, torch or pytorch.")
+    
+    tools = get_tools(binding)
+
+    # we don't need cuda with numpy (at least i think so)
+    is_cuda = True if (binding == 'torch' or binding == 'pytorch') and torch.cuda.is_available() else False
+    device = torch.device("cuda") if is_cuda else torch.device('cpu')
+
+    b, x, M, replaced = check_dims(b, x, M, tools, is_cuda)
+    n = b.shape[0]
+
+    if eps == None:
+        eps = 1e-6
+    
+    if maxiter == None:
+        maxiter = 10*n
+    
+    rho2 = None
+    resid = b if replaced else b - linop(x)
+    iter_ = 1
+    while iter_ <= maxiter:
+        rho1 =  (resid * resid).sum()
+        if iter_ > 1:
+            beta = rho1 / rho2
+            p = resid + beta*p
+        else:
+            p = resid
+
+        q = linop(p)
+        alpha = rho1 / (p * q).sum()
+        x += alpha * p
+        resid -= alpha * q
+
+        if (resid**2).sum() <= n*eps**2:
+            break;
+        
+        rho2 = rho1
+        iter_ += 1
+    return x, iter_

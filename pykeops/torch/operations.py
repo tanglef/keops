@@ -10,7 +10,7 @@ from pykeops.torch import include_dirs
 from pykeops.torch.generic.generic_red import GenredAutograd
 
 
-from pykeops.torch.cg import cg
+from pykeops.common.cg import cg, another_cg
 
 
 class KernelSolveAutograd(torch.autograd.Function):
@@ -59,19 +59,12 @@ class KernelSolveAutograd(torch.autograd.Function):
             return res
 
         global copy
-        #result = ConjugateGradientSolver('torch', linop, varinv.data, eps)
+        result = ConjugateGradientSolver('torch', linop, varinv.data, eps)
 
         # relying on the 'ctx.saved_variables' attribute is necessary  if you want to be able to differentiate the output
         #  of the backward once again. It helps pytorch to keep track of 'who is who'.
-        # ctx.save_for_backward(*args, result)
-        # print(*args)
-        # print(result)
-        # return result
-
-        #new
-        result, iter_, resid = cg(linop, varinv.data, 'torch', eps=eps)
         ctx.save_for_backward(*args, result)
-        return result, torch.as_tensor(iter_),torch.as_tensor(resid) 
+        return result
 
     @staticmethod
     def backward(ctx, G):
@@ -145,6 +138,105 @@ class KernelSolveAutograd(torch.autograd.Function):
         # Grads wrt. formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *args
         return (None, None, None, None, None, None, None, None, None, None, *grads)
 
+
+class new_KernelSolveAutograd(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *args):
+    
+        optional_flags = include_dirs + accuracy_flags
+
+        myconv = LoadKeOps(formula, aliases, dtype, 'torch',
+                           optional_flags).import_module()
+
+        # Context variables: save everything to compute the gradient:
+        ctx.formula = formula
+        ctx.aliases = aliases
+        ctx.varinvpos = varinvpos
+        ctx.alpha = alpha
+        ctx.backend = backend
+        ctx.dtype = dtype
+        ctx.device_id = device_id
+        ctx.eps = eps
+        ctx.myconv = myconv
+        ctx.ranges = ranges
+        ctx.accuracy_flags = accuracy_flags
+        if ranges is None: ranges = () # To keep the same type
+            
+        varinv = args[varinvpos]
+        ctx.varinvpos = varinvpos
+
+        tagCPUGPU, tag1D2D, tagHostDevice = get_tag_backend(backend, args)
+
+        if tagCPUGPU==1 & tagHostDevice==1:
+            device_id = args[0].device.index
+            for i in range(1,len(args)):
+                if args[i].device.index != device_id:
+                    raise ValueError("[KeOps] Input arrays must be all located on the same device.")
+
+        def linop(var):
+            newargs = args[:varinvpos] + (var,) + args[varinvpos+1:]
+            res = myconv.genred_pytorch(tagCPUGPU, tag1D2D, tagHostDevice, device_id, ranges, *newargs)
+            if alpha:
+                res += alpha*var
+            return res
+
+        result, iter_= cg(linop, varinv.data, 'torch', eps=eps)
+        ctx.save_for_backward(*args, result)
+        return result, torch.as_tensor(iter_)
+
+    @staticmethod
+    def backward(ctx, G):
+
+        formula = ctx.formula
+        aliases = ctx.aliases
+        varinvpos = ctx.varinvpos
+        backend = ctx.backend
+        alpha = ctx.alpha
+        dtype = ctx.dtype
+        device_id = ctx.device_id
+        eps = ctx.eps
+        myconv = ctx.myconv
+        ranges = ctx.ranges
+        accuracy_flags = ctx.accuracy_flags
+        args = ctx.saved_tensors[:-1]  # Unwrap the saved variables
+        nargs = len(args)
+        result = ctx.saved_tensors[-1]
+
+        eta = 'Var(' + str(nargs) + ',' + str(myconv.dimout) + ',' + str(myconv.tagIJ) + ')'
+      
+        # there is also a new variable for the formula's output
+        resvar = 'Var(' + str(nargs+1) + ',' + str(myconv.dimout) + ',' + str(myconv.tagIJ) + ')'
+        
+        newargs = args[:varinvpos] + (G,) + args[varinvpos+1:]
+        KinvG = KernelSolveAutograd.apply(formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *newargs)
+
+        grads = []  # list of gradients wrt. args;
+
+        for (var_ind, sig) in enumerate(aliases):
+            if not ctx.needs_input_grad[var_ind + 10]:  # because of (formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags)
+                grads.append(None)  # Don't waste time computing it.
+
+            else:
+                if var_ind == varinvpos:
+                    grads.append(KinvG)
+                else:
+                    _, cat, dim, pos = get_type(sig, position_in_list=var_ind)
+                    var = 'Var(' + str(pos) + ',' + str(dim) + ',' + str(cat) + ')'  # V
+                    formula_g = 'Grad_WithSavedForward(' + formula + ', ' + var + ', ' + eta + ', ' + resvar + ')'  # Grad<F,V,G,R>
+                    aliases_g = aliases + [eta, resvar]
+                    args_g = args[:varinvpos] + (result,) + args[varinvpos+1:] + (-KinvG,) + (result,)
+                    genconv = GenredAutograd().apply
+
+                    if cat == 2:
+                        grad = genconv(formula_g, aliases_g, backend, dtype, device_id, ranges, accuracy_flags, *args_g)
+                        grad = torch.ones(1, grad.shape[0]).type_as(grad.data) @ grad
+                        grad = grad.view(-1)
+                    else:
+                        grad = genconv(formula_g, aliases_g, backend, dtype, device_id, ranges, accuracy_flags, *args_g)
+                    grads.append(grad)
+         
+        return (None, None, None, None, None, None, None, None, None, None, *grads)
 
 
 class KernelSolve():
@@ -335,4 +427,208 @@ class KernelSolve():
             
         """
         return KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
+
+    def new_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
+        return new_KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
+
+    def latest_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
+        return latest_KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
+
+class new_KernelSolveAutograd(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *args):
+    
+        optional_flags = include_dirs + accuracy_flags
+
+        myconv = LoadKeOps(formula, aliases, dtype, 'torch',
+                           optional_flags).import_module()
+
+        # Context variables: save everything to compute the gradient:
+        ctx.formula = formula
+        ctx.aliases = aliases
+        ctx.varinvpos = varinvpos
+        ctx.alpha = alpha
+        ctx.backend = backend
+        ctx.dtype = dtype
+        ctx.device_id = device_id
+        ctx.eps = eps
+        ctx.myconv = myconv
+        ctx.ranges = ranges
+        ctx.accuracy_flags = accuracy_flags
+        if ranges is None: ranges = () # To keep the same type
+            
+        varinv = args[varinvpos]
+        ctx.varinvpos = varinvpos
+
+        tagCPUGPU, tag1D2D, tagHostDevice = get_tag_backend(backend, args)
+
+        if tagCPUGPU==1 & tagHostDevice==1:
+            device_id = args[0].device.index
+            for i in range(1,len(args)):
+                if args[i].device.index != device_id:
+                    raise ValueError("[KeOps] Input arrays must be all located on the same device.")
+
+        def linop(var):
+            newargs = args[:varinvpos] + (var,) + args[varinvpos+1:]
+            res = myconv.genred_pytorch(tagCPUGPU, tag1D2D, tagHostDevice, device_id, ranges, *newargs)
+            if alpha:
+                res += alpha*var
+            return res
+
+        result, iter_= cg(linop, varinv.data, 'torch', eps=eps)
+        ctx.save_for_backward(*args, result)
+        return result, torch.as_tensor(iter_)
+
+    @staticmethod
+    def backward(ctx, G):
+
+        formula = ctx.formula
+        aliases = ctx.aliases
+        varinvpos = ctx.varinvpos
+        backend = ctx.backend
+        alpha = ctx.alpha
+        dtype = ctx.dtype
+        device_id = ctx.device_id
+        eps = ctx.eps
+        myconv = ctx.myconv
+        ranges = ctx.ranges
+        accuracy_flags = ctx.accuracy_flags
+        args = ctx.saved_tensors[:-1]  # Unwrap the saved variables
+        nargs = len(args)
+        result = ctx.saved_tensors[-1]
+
+        eta = 'Var(' + str(nargs) + ',' + str(myconv.dimout) + ',' + str(myconv.tagIJ) + ')'
+      
+        # there is also a new variable for the formula's output
+        resvar = 'Var(' + str(nargs+1) + ',' + str(myconv.dimout) + ',' + str(myconv.tagIJ) + ')'
+        
+        newargs = args[:varinvpos] + (G,) + args[varinvpos+1:]
+        KinvG = KernelSolveAutograd.apply(formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *newargs)
+
+        grads = []  # list of gradients wrt. args;
+
+        for (var_ind, sig) in enumerate(aliases):
+            if not ctx.needs_input_grad[var_ind + 10]:  # because of (formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags)
+                grads.append(None)  # Don't waste time computing it.
+
+            else:
+                if var_ind == varinvpos:
+                    grads.append(KinvG)
+                else:
+                    _, cat, dim, pos = get_type(sig, position_in_list=var_ind)
+                    var = 'Var(' + str(pos) + ',' + str(dim) + ',' + str(cat) + ')'  # V
+                    formula_g = 'Grad_WithSavedForward(' + formula + ', ' + var + ', ' + eta + ', ' + resvar + ')'  # Grad<F,V,G,R>
+                    aliases_g = aliases + [eta, resvar]
+                    args_g = args[:varinvpos] + (result,) + args[varinvpos+1:] + (-KinvG,) + (result,)
+                    genconv = GenredAutograd().apply
+
+                    if cat == 2:
+                        grad = genconv(formula_g, aliases_g, backend, dtype, device_id, ranges, accuracy_flags, *args_g)
+                        grad = torch.ones(1, grad.shape[0]).type_as(grad.data) @ grad
+                        grad = grad.view(-1)
+                    else:
+                        grad = genconv(formula_g, aliases_g, backend, dtype, device_id, ranges, accuracy_flags, *args_g)
+                    grads.append(grad)
+         
+        return (None, None, None, None, None, None, None, None, None, None, *grads)
+
+class latest_KernelSolveAutograd(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *args):
+    
+        optional_flags = include_dirs + accuracy_flags
+
+        myconv = LoadKeOps(formula, aliases, dtype, 'torch',
+                           optional_flags).import_module()
+
+        # Context variables: save everything to compute the gradient:
+        ctx.formula = formula
+        ctx.aliases = aliases
+        ctx.varinvpos = varinvpos
+        ctx.alpha = alpha
+        ctx.backend = backend
+        ctx.dtype = dtype
+        ctx.device_id = device_id
+        ctx.eps = eps
+        ctx.myconv = myconv
+        ctx.ranges = ranges
+        ctx.accuracy_flags = accuracy_flags
+        if ranges is None: ranges = () # To keep the same type
+            
+        varinv = args[varinvpos]
+        ctx.varinvpos = varinvpos
+
+        tagCPUGPU, tag1D2D, tagHostDevice = get_tag_backend(backend, args)
+
+        if tagCPUGPU==1 & tagHostDevice==1:
+            device_id = args[0].device.index
+            for i in range(1,len(args)):
+                if args[i].device.index != device_id:
+                    raise ValueError("[KeOps] Input arrays must be all located on the same device.")
+
+        def linop(var):
+            newargs = args[:varinvpos] + (var,) + args[varinvpos+1:]
+            res = myconv.genred_pytorch(tagCPUGPU, tag1D2D, tagHostDevice, device_id, ranges, *newargs)
+            if alpha:
+                res += alpha*var
+            return res
+
+        result, iter_= another_cg(linop, varinv.data, 'torch', eps=eps)
+        ctx.save_for_backward(*args, result)
+        return result, torch.as_tensor(iter_)
+
+    @staticmethod
+    def backward(ctx, G):
+
+        formula = ctx.formula
+        aliases = ctx.aliases
+        varinvpos = ctx.varinvpos
+        backend = ctx.backend
+        alpha = ctx.alpha
+        dtype = ctx.dtype
+        device_id = ctx.device_id
+        eps = ctx.eps
+        myconv = ctx.myconv
+        ranges = ctx.ranges
+        accuracy_flags = ctx.accuracy_flags
+        args = ctx.saved_tensors[:-1]  # Unwrap the saved variables
+        nargs = len(args)
+        result = ctx.saved_tensors[-1]
+
+        eta = 'Var(' + str(nargs) + ',' + str(myconv.dimout) + ',' + str(myconv.tagIJ) + ')'
+      
+        # there is also a new variable for the formula's output
+        resvar = 'Var(' + str(nargs+1) + ',' + str(myconv.dimout) + ',' + str(myconv.tagIJ) + ')'
+        
+        newargs = args[:varinvpos] + (G,) + args[varinvpos+1:]
+        KinvG = KernelSolveAutograd.apply(formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *newargs)
+
+        grads = []  # list of gradients wrt. args;
+
+        for (var_ind, sig) in enumerate(aliases):
+            if not ctx.needs_input_grad[var_ind + 10]:  # because of (formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags)
+                grads.append(None)  # Don't waste time computing it.
+
+            else:
+                if var_ind == varinvpos:
+                    grads.append(KinvG)
+                else:
+                    _, cat, dim, pos = get_type(sig, position_in_list=var_ind)
+                    var = 'Var(' + str(pos) + ',' + str(dim) + ',' + str(cat) + ')'  # V
+                    formula_g = 'Grad_WithSavedForward(' + formula + ', ' + var + ', ' + eta + ', ' + resvar + ')'  # Grad<F,V,G,R>
+                    aliases_g = aliases + [eta, resvar]
+                    args_g = args[:varinvpos] + (result,) + args[varinvpos+1:] + (-KinvG,) + (result,)
+                    genconv = GenredAutograd().apply
+
+                    if cat == 2:
+                        grad = genconv(formula_g, aliases_g, backend, dtype, device_id, ranges, accuracy_flags, *args_g)
+                        grad = torch.ones(1, grad.shape[0]).type_as(grad.data) @ grad
+                        grad = grad.view(-1)
+                    else:
+                        grad = genconv(formula_g, aliases_g, backend, dtype, device_id, ranges, accuracy_flags, *args_g)
+                    grads.append(grad)
+         
+        return (None, None, None, None, None, None, None, None, None, None, *grads)
 
