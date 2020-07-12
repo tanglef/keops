@@ -7,7 +7,7 @@ from pykeops.common.parse_type import complete_aliases, get_accuracy_flags
 from pykeops.common.utils import axis2cat
 from pykeops.numpy import default_dtype
 
-from pykeops.common.cg import cg, another_cg
+from pykeops.common.cg import cg, another_cg, cg_dic
 
 class KernelSolve:
     r"""
@@ -235,3 +235,18 @@ class KernelSolve:
             return res
 
         return another_cg(linop, varinv, 'numpy', eps=eps)
+    
+    def dic_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None, callback=None):
+        tagCpuGpu, tag1D2D, _ = get_tag_backend(backend, args)
+        varinv = args[self.varinvpos]
+        
+        if ranges is None: ranges = ()  # ranges should be encoded as a tuple
+
+        def linop(var):
+            newargs = args[:self.varinvpos] + (var,) + args[self.varinvpos + 1:]
+            res = self.myconv.genred_numpy(tagCpuGpu, tag1D2D, 0, device_id, ranges, *newargs)
+            if alpha:
+                res += alpha * var
+            return res
+
+        return cg_dic(linop, varinv, 'numpy', eps=eps, callback=callback)

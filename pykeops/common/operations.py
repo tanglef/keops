@@ -78,15 +78,13 @@ def ConjugateGradientSolver(binding, linop, b, eps=1e-6):
     # to a symmetric and positive definite matrix
     tools = get_tools(binding)
     delta = tools.size(b) * eps ** 2
-    nb_iter = tools.size(b)
     a = 0
     r = tools.copy(b)
     nr2 = (r ** 2).sum()
     if nr2 < delta:
         return 0 * r
     p = tools.copy(r)
-    k = 0
-    while k <= nb_iter:
+    while True:
         Mp = linop(p)
         alp = nr2 / (p * Mp).sum()
         a += alp * p
@@ -96,7 +94,6 @@ def ConjugateGradientSolver(binding, linop, b, eps=1e-6):
             break
         p = r + (nr2new / nr2) * p
         nr2 = nr2new
-        k += 1
     return a
 
 
