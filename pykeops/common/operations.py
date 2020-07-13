@@ -72,7 +72,7 @@ def postprocess(out, binding, reduction_op, nout, opt_arg, dtype):
     return out
 
 
-def ConjugateGradientSolver(binding, linop, b, eps=1e-6):
+def ConjugateGradientSolver(binding, linop, b, eps=1e-6, callback=None):
     # Conjugate gradient algorithm to solve linear system of the form
     # Ma=b where linop is a linear operation corresponding
     # to a symmetric and positive definite matrix
@@ -84,6 +84,7 @@ def ConjugateGradientSolver(binding, linop, b, eps=1e-6):
     if nr2 < delta:
         return 0 * r
     p = tools.copy(r)
+    k = 1
     while True:
         Mp = linop(p)
         alp = nr2 / (p * Mp).sum()
@@ -94,6 +95,9 @@ def ConjugateGradientSolver(binding, linop, b, eps=1e-6):
             break
         p = r + (nr2new / nr2) * p
         nr2 = nr2new
+        k += 1
+        if callback is not None:
+            callback(a)
     return a
 
 

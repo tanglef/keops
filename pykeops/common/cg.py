@@ -209,8 +209,8 @@ def cg_dic(linop, b, binding, x=None, eps=None, maxiter=None, callback=None):
     n, m = b.shape
 
     if eps == None:
-        eps = 1e-6
-    
+        eps = 1e-6 * (b ** 2).sum() ** .5
+        
     if maxiter == None:
         maxiter = 10*n
 
@@ -226,21 +226,20 @@ def cg_dic(linop, b, binding, x=None, eps=None, maxiter=None, callback=None):
 
     def init_iter(linop, x, r, p, q, b, scal1, scal2, eps, replaced, iter_): # revc -> cg
         r = tools.copy(b) if replaced else (b - linop(x))
+        scal1 = (r ** 2).sum()
         job_cg = "check"
         return job_cg, x, r, p, q, scal1, scal2, iter_
 
     def check_resid(linop, x, r, p, q, b, scal1, scal2, eps, replaced, iter_): #cg -> revc
-        if (r ** 2).sum() <= n*m*eps**2:
-           job_rev = "stop"
+        if scal1 <= eps**2 or scal1 != scal1:
+            job_rev = "stop"
         else:
-            scal2 = tools.copy(scal1)
             iter_ += 1
             job_rev = "direction_next" if iter_ > 1 else "direction_first"
         return job_rev, x, r, p, q, scal1, scal2, iter_ 
 
     def first_direct(linop, x, r, p, q, b, scal1, scal2, eps, replaced, iter_): #revc -> cg
         p = tools.copy(r)
-        scal1 =  (r ** 2).sum()
         job_cg = "matvec_p"
         return job_cg, x, r, p, q, scal1, scal2, iter_
     
@@ -253,6 +252,7 @@ def cg_dic(linop, b, binding, x=None, eps=None, maxiter=None, callback=None):
         alpha = scal1 / (p * q).sum()
         x += alpha * p
         r -= alpha * q
+        scal2 = scal1
         job_cg = "check"
         return job_cg, x, r, p, q, scal1, scal2, iter_
 
@@ -280,7 +280,8 @@ def cg_dic(linop, b, binding, x=None, eps=None, maxiter=None, callback=None):
 
     while iter_ <= maxiter:
         if job_cg == "check" and callback is not None:
-            callback(x)
+            if iter_ > 1:
+                callback(x)
         job_cg, x, r, p, q, scal1, scal2, iter_ = jobs_revcom[job_rev](linop, x, r, p, q, b, scal1, scal2, eps, replaced, iter_)
         job_rev, x, r, p, q, scal1, scal2, iter_ = jobs_cg[job_cg](linop, x, r, p, q, b, scal1, scal2, eps, replaced, iter_)
 

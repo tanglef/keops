@@ -333,7 +333,7 @@ class KernelSolve():
     def latest_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
         return latest_KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
 
-    def dic_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
+    def dic_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=None, ranges=None):
         return dic_KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
 
 class new_KernelSolveAutograd(torch.autograd.Function):

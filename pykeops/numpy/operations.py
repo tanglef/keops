@@ -136,7 +136,7 @@ class KernelSolve:
             varinvpos = tmp.index(varinvalias)
         self.varinvpos = varinvpos
     
-    def __call__(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
+    def __call__(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None, callback=None):
         r"""
         To apply the routine on arbitrary NumPy arrays.
             
@@ -204,7 +204,7 @@ class KernelSolve:
                 res += alpha * var
             return res
 
-        return ConjugateGradientSolver('numpy', linop, varinv, eps=eps)
+        return ConjugateGradientSolver('numpy', linop, varinv, eps=eps, callback=callback)
 
     def new_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
         tagCpuGpu, tag1D2D, _ = get_tag_backend(backend, args)
@@ -236,7 +236,7 @@ class KernelSolve:
 
         return another_cg(linop, varinv, 'numpy', eps=eps)
     
-    def dic_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None, callback=None):
+    def dic_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=None, ranges=None, callback=None):
         tagCpuGpu, tag1D2D, _ = get_tag_backend(backend, args)
         varinv = args[self.varinvpos]
         
