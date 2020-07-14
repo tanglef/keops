@@ -1,5 +1,7 @@
 import torch
 from pykeops.common.utils import get_tools
+from math import sqrt
+import warnings
 
 ##################  Main routines
 
@@ -195,7 +197,7 @@ def another_cg(linop, b, binding, x=None,  eps=None, maxiter=None, inv_precond=N
 ####### CG_revcom with Python dictionnary
 #############################################
 
-def cg_dic(linop, b, binding, x=None, eps=None, maxiter=None, callback=None):
+def cg_dic(linop, b, binding, x=None, eps=None, maxiter=None, callback=None, check_cond=False):
     if binding not in ("torch", "numpy", "pytorch"):
         raise ValueError("Language not supported, please use numpy, torch or pytorch.")
     
@@ -209,10 +211,16 @@ def cg_dic(linop, b, binding, x=None, eps=None, maxiter=None, callback=None):
     n, m = b.shape
 
     if eps == None:
-        eps = 1e-6 * (b ** 2).sum() ** .5
+        eps = 1e-6 * sqrt((b ** 2).sum())
         
     if maxiter == None:
         maxiter = 10*n
+
+    if check_cond:
+        from pykeops.common.power_iteration import bootleg_inv_power_cond_big as cond_big
+        cond_too_big = cond_big(linop, n, binding, device)
+        if cond_too_big:
+            warnings.warn("Warning ----------- Condition number might be too large.")
 
     # define the functions needed along the iterations
     if binding == "numpy":
