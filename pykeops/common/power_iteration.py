@@ -4,7 +4,7 @@ import warnings
 from math import sqrt
 
 from pykeops.common.utils import get_tools
-from pykeops.common.cg import cg_dic as cg
+from pykeops.common.cg import cg
 
 #####################
 # Power iteration

@@ -8,9 +8,7 @@ from pykeops.common.utils import axis2cat
 from pykeops.torch import default_dtype
 from pykeops.torch import include_dirs
 from pykeops.torch.generic.generic_red import GenredAutograd
-
-
-from pykeops.common.cg import cg_dic
+from pykeops.common.cg import cg
 
 
 class KernelSolveAutograd(torch.autograd.Function):
@@ -327,7 +325,7 @@ class KernelSolve():
         """
         return KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
 
-    def dic_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=None, check_cond=False, ranges=None):
+    def cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=None, check_cond=False, ranges=None):
         return dic_KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, check_cond, ranges, self.accuracy_flags, *args)
 
     # def new_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
@@ -379,7 +377,7 @@ class dic_KernelSolveAutograd(torch.autograd.Function):
                 res += alpha*var
             return res
 
-        result, iter_ = cg_dic(linop, varinv.data, 'torch', eps=eps, check_cond=check_cond)
+        result, iter_ = cg(linop, varinv.data, 'torch', eps=eps, check_cond=check_cond)
         ctx.save_for_backward(*args, result)
         return result, torch.as_tensor(iter_)
 

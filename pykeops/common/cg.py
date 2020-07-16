@@ -8,7 +8,7 @@ import warnings
 # CG_revcom with Python dictionnary
 #############################################
 
-def cg_dic(linop, b, binding, x=None, eps=None, maxiter=None, callback=None, check_cond=False):
+def cg(linop, b, binding, x=None, eps=None, maxiter=None, callback=None, check_cond=False):
     if binding not in ("torch", "numpy", "pytorch"):
         raise ValueError(
             "Language not supported, please use numpy, torch or pytorch.")
@@ -142,6 +142,8 @@ def check_dims(b, x, tools, cuda_avlb):  # x is always of b's shape
         else:
             raise ValueError("Mismatch between shapes of b {} and shape of x {}.".format(
                 (nrow, nrow), x.shape))
+        if x.dtype != b.dtype:
+            raise ValueError("Type of given x {} is not compatible with type of b {}.".format(x.dtype, b.dtype))
 
     return b, x, x_replaced
 

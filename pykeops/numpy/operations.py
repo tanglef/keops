@@ -7,7 +7,7 @@ from pykeops.common.parse_type import complete_aliases, get_accuracy_flags
 from pykeops.common.utils import axis2cat
 from pykeops.numpy import default_dtype
 
-from pykeops.common.cg import cg_dic
+from pykeops.common.cg import cg
 
 class KernelSolve:
     r"""
@@ -206,7 +206,7 @@ class KernelSolve:
 
         return ConjugateGradientSolver('numpy', linop, varinv, eps=eps, callback=callback)
 
-    def dic_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=None, ranges=None, check_cond=False, callback=None):
+    def cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=None, ranges=None, check_cond=False, callback=None):
         tagCpuGpu, tag1D2D, _ = get_tag_backend(backend, args)
         varinv = args[self.varinvpos]
         
@@ -219,7 +219,7 @@ class KernelSolve:
                 res += alpha * var
             return res
 
-        return cg_dic(linop, varinv, 'numpy', eps=eps, callback=callback, check_cond=check_cond)
+        return cg(linop, varinv, 'numpy', eps=eps, callback=callback, check_cond=check_cond)
   
     # def new_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
     #     tagCpuGpu, tag1D2D, _ = get_tag_backend(backend, args)
