@@ -17,7 +17,7 @@ class KernelSolveAutograd(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *args):
+    def forward(ctx, formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, callback, accuracy_flags, *args):
     
         optional_flags = include_dirs + accuracy_flags
 
@@ -33,6 +33,7 @@ class KernelSolveAutograd(torch.autograd.Function):
         ctx.dtype = dtype
         ctx.device_id = device_id
         ctx.eps = eps
+        ctx.callback = callback
         ctx.myconv = myconv
         ctx.ranges = ranges
         ctx.accuracy_flags = accuracy_flags
@@ -57,7 +58,7 @@ class KernelSolveAutograd(torch.autograd.Function):
             return res
 
         global copy
-        result = ConjugateGradientSolver('torch', linop, varinv.data, eps)
+        result = ConjugateGradientSolver('torch', linop, varinv.data, eps, callback=callback)
 
         # relying on the 'ctx.saved_variables' attribute is necessary  if you want to be able to differentiate the output
         #  of the backward once again. It helps pytorch to keep track of 'who is who'.
@@ -77,6 +78,7 @@ class KernelSolveAutograd(torch.autograd.Function):
         eps = ctx.eps
         myconv = ctx.myconv
         ranges = ctx.ranges
+        callback = ctx.callback
         accuracy_flags = ctx.accuracy_flags
         args = ctx.saved_tensors[:-1]  # Unwrap the saved variables
         nargs = len(args)
@@ -133,8 +135,8 @@ class KernelSolveAutograd(torch.autograd.Function):
                         grad = genconv(formula_g, aliases_g, backend, dtype, device_id, ranges, accuracy_flags, *args_g)
                     grads.append(grad)
          
-        # Grads wrt. formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *args
-        return (None, None, None, None, None, None, None, None, None, None, *grads)
+        # Grads wrt. formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, callback, accuracy_flags, *args
+        return (None, None, None, None, None, None, None, None, None, None, None, *grads)
 
 class KernelSolve():
     r"""
@@ -272,7 +274,7 @@ class KernelSolve():
         self.varinvpos = varinvpos
         self.dtype = dtype
 
-    def __call__(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
+    def __call__(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None, callback=None):
         r"""
         Apply the routine on arbitrary torch Tensors.
             
@@ -311,6 +313,9 @@ class KernelSolve():
 
                 If **None** (default), we simply use a **dense Kernel matrix**
                 as we loop over all indices :math:`i\in[0,M)` and :math:`j\in[0,N)`.
+            
+            callback (boolean, default=None): A function on the current iteration of the
+                solution being called after each step of the conjugate gradient algorithm.
 
         Returns:
             (M,D) or (N,D) Tensor:
@@ -323,9 +328,22 @@ class KernelSolve():
             that is inferred from the **formula**.
             
         """
-        return KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
+        return KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, callback, self.accuracy_flags, *args)
 
     def cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=None, check_cond=False, ranges=None):
+        r"""
+        Same as calling ``KernelSolve``. The keyword argument `check_cond` being added.
+
+        Keyword Args:
+            check_cond (boolean, default=False): Indicates if the condition number
+                **might be** greater than 500. *Warning: setting it to True will
+                result in a more time-consuming method.*
+
+        Returns:
+            A tuple of tensors containing the (M,D) or (N,D) tensor being the approximated
+            solution of the problem and the iteration number the algorithm stopped.
+
+        """
         return dic_KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, check_cond, ranges, self.accuracy_flags, *args)
 
     # def new_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):

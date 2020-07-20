@@ -45,7 +45,7 @@ from pykeops.numpy import Genred as Genred_np
 use_cuda = torch.cuda.is_available()
 
 device = torch.device("cuda") if use_cuda else torch.device("cpu")
-print("The device used is", device, '.')
+print("The device used is {}.".format(device))
 
 ########################################
 # Gaussian radial basis function kernel
