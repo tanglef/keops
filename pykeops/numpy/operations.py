@@ -237,33 +237,3 @@ class KernelSolve:
             return res
 
         return cg(linop, varinv, 'numpy', eps=eps, callback=callback, check_cond=check_cond)
-  
-    # def new_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
-    #     tagCpuGpu, tag1D2D, _ = get_tag_backend(backend, args)
-    #     varinv = args[self.varinvpos]
-        
-    #     if ranges is None: ranges = ()  # ranges should be encoded as a tuple
-
-    #     def linop(var):
-    #         newargs = args[:self.varinvpos] + (var,) + args[self.varinvpos + 1:]
-    #         res = self.myconv.genred_numpy(tagCpuGpu, tag1D2D, 0, device_id, ranges, *newargs)
-    #         if alpha:
-    #             res += alpha * var
-    #         return res
-
-    #     return cg(linop, varinv, 'numpy', eps=eps)
-    
-    # def last_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
-    #     tagCpuGpu, tag1D2D, _ = get_tag_backend(backend, args)
-    #     varinv = args[self.varinvpos]
-        
-    #     if ranges is None: ranges = ()  # ranges should be encoded as a tuple
-
-    #     def linop(var):
-    #         newargs = args[:self.varinvpos] + (var,) + args[self.varinvpos + 1:]
-    #         res = self.myconv.genred_numpy(tagCpuGpu, tag1D2D, 0, device_id, ranges, *newargs)
-    #         if alpha:
-    #             res += alpha * var
-    #         return res
-
-    #     return another_cg(linop, varinv, 'numpy', eps=eps)    

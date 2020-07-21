@@ -122,8 +122,8 @@ functions = [(scipy_cg, "numpy"),
              (keops_np, "numpy"), (keops_tch, "torch"),
              (dic_cg_np, "numpy"), (dic_cg_tch, "torch")]
 
-sizes = [50,  100, 500, 1000, 5000, 10000, 30000]
-reps = [100,  100, 50,  10,   10,   5,     5]
+sizes = [50,  100, 500, 1000, 5000, 10000, 30000, 40000]
+reps = [50 ,  50 , 50,  10,   10,   5,     5,     1]
 
 
 def compute_error(func, pack, result, errors, x, b, alpha, gamma):
@@ -195,6 +195,7 @@ def global_bench(functions, sizes, reps):
     list_errors = [[] for _ in range(len(functions))]
 
     for j, one_to_bench in enumerate(functions):
+        print("~~~~~~~~~~~~~Benchmarking {}~~~~~~~~~~~~~~.".format(one_to_bench))
         for i in range(len(sizes)):
             try:
                 time, err = to_bench(one_to_bench, sizes[i], reps[i])
@@ -205,6 +206,7 @@ def global_bench(functions, sizes, reps):
                     list_times[j].append(np.nan)
                     list_errors[j].append(np.nan)
                 break
+            print("Finished size {}.".format(sizes[i]))
 
         print("Finished", one_to_bench[0], "in a cumulated time of {:3.9f}s.".format(
             sum(list_times[j])))
@@ -220,27 +222,27 @@ def global_bench(functions, sizes, reps):
 
 
 def norm_stability(size, funcpack):
-    errk_scipy, iter_scipy, normx_scipy = [], [], []
-    errk_dic, iter_dic, normx_dic = [], [], []
-    errk_keops, iter_keops, normx_keops = [], [], []
+    errk_scipy, iter_scipy, x_scipy = [], [], []
+    errk_dic, iter_dic, x_dic = [], [], []
+    errk_keops, iter_keops, x_keops = [], [], []
 
     def callback_sci(x):
         env = inspect.currentframe().f_back
         errk_scipy.append(env.f_locals['resid'])
         iter_scipy.append(env.f_locals['iter_'])
-        normx_scipy.append(sum(env.f_locals['x'] ** 2))
+        x_scipy.append(env.f_locals['x'])
 
     def callback_kinv_keops(x):
         env = inspect.currentframe().f_back
         errk_keops.append(env.f_locals['nr2'])
         iter_keops.append(env.f_locals['k'])
-        normx_keops.append(sum(env.f_locals['a'] ** 2))
+        x_keops.append(env.f_locals['a'])
 
     def callback_dic(x):
         env = inspect.currentframe().f_back
         errk_dic.append(env.f_locals["scal1"])
         iter_dic.append(env.f_locals['iter_'])
-        normx_dic.append(sum(env.f_locals['x'] ** 2))
+        x_dic.append(env.f_locals['x'])
 
     callback_list = [callback_sci, callback_kinv_keops, callback_dic]
 
@@ -265,18 +267,92 @@ def norm_stability(size, funcpack):
             x, b = x.cpu().numpy().astype("float32"), b.cpu().numpy().astype("float32")
             gamma, alpha = gamma.cpu().numpy().astype(
                 "float32"), alpha.cpu().numpy().astype("float32")
-
         fun(x, b, gamma, alpha, callback=callback_list[i])
 
-    return errk_scipy, iter_scipy, normx_scipy, errk_dic, iter_dic, normx_keops, errk_keops, iter_keops, normx_dic
+    return errk_scipy, iter_scipy, x_scipy, errk_dic, iter_dic, x_keops, errk_keops, iter_keops, x_dic
 
+
+#########################################
+# Plot the results of the benchmarking
+#########################################
+
+list_times, list_errors = global_bench(functions, sizes, reps)
+
+onlynum = [(scipy_cg, "numpy"), (keops_np, "numpy"), (dic_cg_np, "numpy")]
+errk_scipy, iter_scipy, x_scipy, errk_dic, iter_dic,\
+    x_keops, errk_keops, iter_keops, x_dic = norm_stability(
+        1000, onlynum)
+
+scal_dic, scal_keops, scal_scipy = [], [], []
+for i in range(1,len(iter_dic)):
+    scal_dic.append((x_dic[i-1].T @ x_dic[i]).flatten())
+for i in range(1, len(iter_keops)):
+    scal_keops.append((x_keops[i-1].T @ x_keops[i]).flatten())
+for i in range(1, len(iter_scipy)):
+    scal_scipy.append((x_scipy[i-1].T @ x_scipy[i]).flatten())
+
+labels = ["scipy + keops", "keops_np", "keops_tch",
+          "dico + keops_np", "dico + keops_tch"]
+plt.style.use('ggplot')
+plt.figure(figsize=(10,20))
+plt.subplot(411)
+for i in range(len(functions)):
+    plt.plot(sizes, list_times[i], label=labels[i])
+plt.xscale('log')
+plt.yscale('log')
+plt.xlabel(r"Kernel of size $n\times n$")
+plt.ylabel("Computational time (s)")
+plt.legend()
+plt.subplot(412)
+for i in range(len(functions)):
+    plt.plot(sizes, list_errors[i], label=labels[i])
+plt.xscale('log')
+plt.yscale('log')
+plt.xlabel(r"Kernel of size $n\times n$")
+plt.ylabel(r"Error $||Ax_{k_{end}} -b||^2$")
+plt.legend()
+
+plt.subplot(413)
+plt.plot(iter_keops, errk_keops, 'o-', label=labels[1])
+plt.plot(iter_scipy, errk_scipy, '^-', label=labels[0])
+plt.plot(iter_dic, errk_dic, 'x-', label=labels[3])
+plt.yscale('log')
+plt.xlabel(r"Iteration k")
+plt.ylabel(r"Iterates for the error $||r_k||^2$")
+plt.legend()
+
+plt.subplot(414)
+plt.plot(iter_keops[1:], scal_keops, 'o-', label=labels[1])
+plt.plot(iter_scipy[1:], scal_scipy, '^-', label=labels[0])
+plt.plot(iter_dic[1:], scal_dic, 'x-', label=labels[3])
+plt.yscale('log')
+plt.xlabel(r"Iteration k")
+plt.ylabel(r"$\langle x_{k-1}|x_k\rangle $")
+plt.legend()
+
+plt.tight_layout()
+plt.show()
 
 #######################################################
 # Is the condition number too big ? 
 # -------------------------------------
 #
-# The argument ``check_cond`` lets the user have an idea of the conditioning number of the matrix :math:`A=(K_{x,x} + \alpha Id)`. A warning appears
-# if :math:`\mathrm{cond}(A)>500`. The user is also warned if the CG algorithm reached its maximum number of iterations *ie* did not converge.
+# Scipy's algorithm can't be used practically for large kernels in this case. The condition number can be why.
+#
+#
+# The argument ``check_cond`` in Keops lets the user have an idea of the conditioning number of the matrix :math:`A=(K_{x,x} + \alpha Id)`. A warning appears
+# if :math:`\mathrm{cond}(A)>500`. The user is also warned if the CG algorithm reached its maximum number of iterations *ie* did not converge. The idea here
+# is not to estimate the condition number and let the user have another sanity check at disposal.
+#
+# To test the condition number :math:`\mathcrm{cond}(A)=\frac{\lambda_{\max}}{\lambda_{\min}}`, we first use the
+# power iteration to have a good estimation of :math:`\lambda_{\max}`. Then, wee apply the inverse power iteration
+# to obtain the iterations :math:`\mu_k` of the estimated :math:`\lambda_{\min}` using the Rayleigh's quotient after having the iterations :math:`u_k`
+# of the estimated eigen vector :math:`u_1`. The distance between the vectors :math:`v_k` and :math:`u_1` decreasing over the iterations, if we don't want
+# :math:`\frac{\lambda_{\max}}{\lambda_{\min}}>500` then :math:`\mu_k` must not be below the threshold :math:`\frac{\lambda_{\max}}{500}`
+# If so, the system warns the user that the condition number might be too high.
+#
+# In practice only a few iterations are necessary to go below this threshold. Thus we fixed a maximum number of iterations for the inverse
+# power method to ``50`` so that for large matrices it doesn't take too much time.
 
 
 def test_cond(device, size, pack, alpha):
@@ -311,22 +387,23 @@ print("Large matrix unwell conditioned but with a large regularization (nothing 
 ans3 = test_cond(device, 1000, 'numpy', alpha=100)
 
 
-#########################################
-# Plot the results of the benchmarking
-#########################################
+##########################
+# Zoom in on Keops times
+############################
+#
+# Let's consider the Keops conjugate gradients for large kernels.
+#
 
+
+functions = functions[1:]
+sizes = [10000, 30000, 50000, 100000, 200000]
+reps = [ 5,     5,     5,     5,      2]
 list_times, list_errors = global_bench(functions, sizes, reps)
-
-onlynum = [(scipy_cg, "numpy"), (keops_np, "numpy"), (dic_cg_np, "numpy")]
-errk_scipy, iter_scipy, normx_scipy, errk_dic, iter_dic,\
-    normx_keops, errk_keops, iter_keops, normx_dic = norm_stability(
-        1000, onlynum)
-
-labels = ["scipy + keops", "keops_np", "keops_tch",
+labels = ["keops_np", "keops_tch",
           "dico + keops_np", "dico + keops_tch"]
 plt.style.use('ggplot')
 plt.figure(figsize=(10,20))
-plt.subplot(411)
+plt.subplot(121)
 for i in range(len(functions)):
     plt.plot(sizes, list_times[i], label=labels[i])
 plt.xscale('log')
@@ -334,7 +411,7 @@ plt.yscale('log')
 plt.xlabel(r"Kernel of size $n\times n$")
 plt.ylabel("Computational time (s)")
 plt.legend()
-plt.subplot(412)
+plt.subplot(122)
 for i in range(len(functions)):
     plt.plot(sizes, list_errors[i], label=labels[i])
 plt.xscale('log')
@@ -343,23 +420,4 @@ plt.xlabel(r"Kernel of size $n\times n$")
 plt.ylabel(r"Error $||Ax_{k_{end}} -b||^2$")
 plt.legend()
 
-plt.subplot(413)
-plt.plot(iter_keops, errk_keops, 'o-', label=labels[1])
-plt.plot(iter_scipy, errk_scipy, '^-', label=labels[0])
-plt.plot(iter_dic, errk_dic, 'x-', label=labels[3])
-plt.yscale('log')
-plt.xlabel(r"Iteration k")
-plt.ylabel(r"Iterates for the error $||r_k||^2$")
-plt.legend()
-
-plt.subplot(414)
-plt.plot(iter_keops, normx_keops, 'o-', label=labels[1])
-plt.plot(iter_scipy, normx_scipy, '^-', label=labels[0])
-plt.plot(iter_dic, normx_dic, 'x-', label=labels[3])
-plt.yscale('log')
-plt.xlabel(r"Iteration k")
-plt.ylabel(r"$||x_k||^2$")
-plt.legend()
-
-plt.tight_layout()
 plt.show()
