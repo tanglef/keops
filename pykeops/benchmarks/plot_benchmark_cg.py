@@ -30,7 +30,7 @@ import inspect
 
 import numpy as np
 import torch
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 
 from scipy.sparse import diags
 from scipy.sparse.linalg import aslinearoperator, cg
@@ -363,7 +363,8 @@ plt.show()
 # To test the condition number :math:`\mathrm{cond}(A)=\frac{\lambda_{\max}}{\lambda_{\min}}`, we first use the
 # power iteration to have a good estimation of :math:`\lambda_{\max}`. Then, wee apply the inverse power iteration
 # to obtain the iterations :math:`\mu_k` of the estimated :math:`\lambda_{\min}` using the Rayleigh's quotient after having the iterations :math:`u_k`
-# of the estimated eigen vector :math:`u_1`. The distance between the vectors :math:`v_k` and :math:`u_1` decreasing over the iterations, if we don't want
+# of the estimated eigen vector :math:`u_1`. The distance between the vectors :math:`v_k` and :math:`u_1` decreasing over the iterations at a rate of
+# :math:`\mathcal{O}\left(\left|\frac{\lambda_{\min}}{\lambda_{submin}}\right|^k\right)`, if we don't want
 # :math:`\frac{\lambda_{\max}}{\lambda_{\min}}>500` then :math:`\mu_k` must not be below the threshold :math:`\frac{\lambda_{\max}}{500}`
 # If so, the system warns the user that the condition number might be too high.
 #
@@ -435,5 +436,4 @@ plt.yscale('log')
 plt.xlabel(r"Kernel of size $n\times n$")
 plt.ylabel(r"Error $||Ax_{k_{end}} -b||^2$")
 plt.legend()
-
 plt.show()
