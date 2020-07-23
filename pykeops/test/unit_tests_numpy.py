@@ -316,7 +316,7 @@ class NumpyUnitTestCase(unittest.TestCase):
         Kinv = KernelSolve(formula, aliases, "a", axis=1,
                            dtype=self.type_to_test[1])
 
-        ans = Kinv.dic_cg(self.x, self.x, self.f,
+        ans = Kinv.cg(self.x, self.x, self.f,
                           self.sigma, alpha=self.sigma)[0]
         err = ((self.sigma * ans + K(self.x, self.x,
                                      ans, self.sigma) - self.f) ** 2).sum()

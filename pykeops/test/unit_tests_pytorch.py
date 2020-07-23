@@ -569,7 +569,7 @@ class PytorchUnitTestCase(unittest.TestCase):
         K = Genred(formula, aliases, axis=1, dtype="float32")
         Kinv = KernelSolve(formula, aliases, "a", axis=1,
                            dtype="float32")
-        ans = Kinv.dic_cg(self.xc, self.xc, self.fc,
+        ans = Kinv.cg(self.xc, self.xc, self.fc,
                           self.sigmac, alpha=self.sigmac)[0]
         err = ((self.sigmac * ans + K(self.xc, self.xc,
                                      ans, self.sigmac) - self.fc) ** 2).sum()
