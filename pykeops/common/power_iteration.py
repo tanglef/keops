@@ -55,6 +55,8 @@ def bootleg_inv_power_cond_big(linop, size, binding, device, maxcond=500, maxite
         if vp[k] <= thresh:
             cond_too_big = True
             break
+        if k >=1 and (vp[k]-vp[k-1]) ** 2 <= 1e-10: #cv
+            k = maxiter #exit
         k += 1
     if (k - 1) == maxiter:
         cond_too_big = False

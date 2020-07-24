@@ -65,7 +65,7 @@ aliases = ['x = Vi(1)',   # First arg:  i-variable of size 1
 # All systems are regularized with a ridge parameter ``alpha``. 
 #
 # The originals :
-# -------------------
+# 
 
 
 def keops_tch(x, b, gamma, alpha, callback=None):
@@ -82,7 +82,7 @@ def keops_np(x, b, gamma, alpha, callback=None):
 
 ####################################
 # Scipy :
-# ----------
+# 
 #
 
 
@@ -95,10 +95,9 @@ def scipy_cg(x, b, gamma, alpha, callback=None):
     return res
 
 
-####################################""
+####################################
 # Pythonized scipy :
-# ---------------------
-#
+# 
 
 
 def dic_cg_np(x, b, gamma, alpha, callback=None, check_cond=False):
@@ -349,8 +348,8 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 
-#######################################################
-# Is the condition number too big ? 
+####################################################### 
+# Condition number check
 # -------------------------------------
 #
 # Scipy's algorithm can't be used practically for large kernels in this case. The condition number can be why.
