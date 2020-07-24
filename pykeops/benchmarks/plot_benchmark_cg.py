@@ -159,7 +159,7 @@ def to_bench(funcpack, size, rep):
 
     if use_cuda:
         torch.cuda.synchronize()
-    for i in range(rep+1):  # 0 is a warmup
+    for i in range(rep):
 
         x = torch.linspace(1/size, 1, size, dtype=torch.float32,
                            device=device).reshape(size, 1)
