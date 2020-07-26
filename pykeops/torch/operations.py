@@ -17,7 +17,7 @@ class KernelSolveAutograd(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, callback, accuracy_flags, *args):
+    def forward(ctx, formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *args):
     
         optional_flags = include_dirs + accuracy_flags
 
@@ -33,7 +33,6 @@ class KernelSolveAutograd(torch.autograd.Function):
         ctx.dtype = dtype
         ctx.device_id = device_id
         ctx.eps = eps
-        ctx.callback = callback
         ctx.myconv = myconv
         ctx.ranges = ranges
         ctx.accuracy_flags = accuracy_flags
@@ -49,7 +48,6 @@ class KernelSolveAutograd(torch.autograd.Function):
             for i in range(1,len(args)):
                 if args[i].device.index != device_id:
                     raise ValueError("[KeOps] Input arrays must be all located on the same device.")
-
         def linop(var):
             newargs = args[:varinvpos] + (var,) + args[varinvpos+1:]
             res = myconv.genred_pytorch(tagCPUGPU, tag1D2D, tagHostDevice, device_id, ranges, *newargs)
@@ -58,7 +56,7 @@ class KernelSolveAutograd(torch.autograd.Function):
             return res
 
         global copy
-        result = ConjugateGradientSolver('torch', linop, varinv.data, eps, callback=callback)
+        result = ConjugateGradientSolver('torch', linop, varinv.data, eps)
 
         # relying on the 'ctx.saved_variables' attribute is necessary  if you want to be able to differentiate the output
         #  of the backward once again. It helps pytorch to keep track of 'who is who'.
@@ -78,7 +76,6 @@ class KernelSolveAutograd(torch.autograd.Function):
         eps = ctx.eps
         myconv = ctx.myconv
         ranges = ctx.ranges
-        callback = ctx.callback
         accuracy_flags = ctx.accuracy_flags
         args = ctx.saved_tensors[:-1]  # Unwrap the saved variables
         nargs = len(args)
@@ -107,7 +104,7 @@ class KernelSolveAutograd(torch.autograd.Function):
                 if var_ind == varinvpos:
                     grads.append(KinvG)
                 else:
-                    # adding new aliases is way too dangerous if we want to compute
+                    #adding new aliases is way too dangerous if we want to compute
                     # second derivatives, etc. So we make explicit references to Var<ind,dim,cat> instead.
                     # New here (Joan) : we still add the new variables to the list of "aliases" (without giving new aliases for them)
                     # these will not be used in the C++ code, 
@@ -135,8 +132,8 @@ class KernelSolveAutograd(torch.autograd.Function):
                         grad = genconv(formula_g, aliases_g, backend, dtype, device_id, ranges, accuracy_flags, *args_g)
                     grads.append(grad)
          
-        # Grads wrt. formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, callback, accuracy_flags, *args
-        return (None, None, None, None, None, None, None, None, None, None, None, *grads)
+        # Grads wrt. formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, *args
+        return (None, None, None, None, None, None, None, None, None, None, *grads)
 
 class KernelSolve():
     r"""
@@ -274,7 +271,7 @@ class KernelSolve():
         self.varinvpos = varinvpos
         self.dtype = dtype
 
-    def __call__(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None, callback=None):
+    def __call__(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
         r"""
         Apply the routine on arbitrary torch Tensors.
             
@@ -313,9 +310,6 @@ class KernelSolve():
 
                 If **None** (default), we simply use a **dense Kernel matrix**
                 as we loop over all indices :math:`i\in[0,M)` and :math:`j\in[0,N)`.
-            
-            callback (boolean, default=None): A function on the current iteration of the
-                solution being called after each step of the conjugate gradient algorithm.
 
         Returns:
             (M,D) or (N,D) Tensor:
@@ -328,9 +322,9 @@ class KernelSolve():
             that is inferred from the **formula**.
             
         """
-        return KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, callback, self.accuracy_flags, *args)
+        return KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
 
-    def cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=None, check_cond=False, ranges=None):
+    def cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=None, check_cond=False, callback=None, ranges=None):
         r"""
         Same as calling ``KernelSolve``. The keyword argument `check_cond` being added.
 
@@ -344,18 +338,12 @@ class KernelSolve():
             solution of the problem and the iteration number the algorithm stopped.
 
         """
-        return dic_KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, check_cond, ranges, self.accuracy_flags, *args)
-
-    # def new_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
-    #     return new_KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
-
-    # def latest_cg(self, *args, backend='auto', device_id=-1, alpha=1e-10, eps=1e-6, ranges=None):
-    #     return latest_KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, *args)
+        return dic_KernelSolveAutograd.apply(self.formula, self.aliases, self.varinvpos, alpha, backend, self.dtype, device_id, eps, ranges, self.accuracy_flags, check_cond, callback, *args)
 
 class dic_KernelSolveAutograd(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, check_cond, ranges, accuracy_flags, *args):
+    def forward(ctx, formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, check_cond, callback, *args):
     
         optional_flags = include_dirs + accuracy_flags
 
@@ -374,6 +362,7 @@ class dic_KernelSolveAutograd(torch.autograd.Function):
         ctx.eps = eps
         ctx.myconv = myconv
         ctx.ranges = ranges
+        ctx.callback = callback
         ctx.accuracy_flags = accuracy_flags
         if ranges is None: ranges = () # To keep the same type
             
@@ -395,7 +384,7 @@ class dic_KernelSolveAutograd(torch.autograd.Function):
                 res += alpha*var
             return res
 
-        result, iter_ = cg(linop, varinv.data, 'torch', eps=eps, check_cond=check_cond)
+        result, iter_ = cg(linop, varinv.data, 'torch', eps=eps, check_cond=check_cond, callback=callback)
         ctx.save_for_backward(*args, result)
         return result, torch.as_tensor(iter_)
 
@@ -413,6 +402,7 @@ class dic_KernelSolveAutograd(torch.autograd.Function):
         check_cond = ctx.check_cond
         myconv = ctx.myconv
         ranges = ctx.ranges
+        callback = ctx.callback
         accuracy_flags = ctx.accuracy_flags
         args = ctx.saved_tensors[:-1]  # Unwrap the saved variables
         nargs = len(args)
@@ -424,7 +414,7 @@ class dic_KernelSolveAutograd(torch.autograd.Function):
         resvar = 'Var(' + str(nargs+1) + ',' + str(myconv.dimout) + ',' + str(myconv.tagIJ) + ')'
         
         newargs = args[:varinvpos] + (G,) + args[varinvpos+1:]
-        KinvG = KernelSolveAutograd.apply(formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, check_cond, ranges, accuracy_flags, *newargs)
+        KinvG = KernelSolveAutograd.apply(formula, aliases, varinvpos, alpha, backend, dtype, device_id, eps, ranges, accuracy_flags, check_cond, callback, *newargs)
 
         grads = []  # list of gradients wrt. args;
 
@@ -451,4 +441,4 @@ class dic_KernelSolveAutograd(torch.autograd.Function):
                         grad = genconv(formula_g, aliases_g, backend, dtype, device_id, ranges, accuracy_flags, *args_g)
                     grads.append(grad)
          
-        return (None, None, None, None, None, None, None, None, None, None, None, *grads)
+        return (None, None, None, None, None, None, None, None, None, None, None, None, None, *grads)

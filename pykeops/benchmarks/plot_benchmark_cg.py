@@ -68,7 +68,7 @@ aliases = ['x = Vi(1)',   # First arg:  i-variable of size 1
 # 
 
 
-def keops_tch(x, b, gamma, alpha, callback=None):
+def keops_tch(x, b, gamma, alpha):
     Kinv = KernelSolve(formula, aliases, "a", axis=1, dtype='float32')
     res = Kinv(x, x, b, gamma, alpha=alpha)
     return res
@@ -407,7 +407,8 @@ ans3 = test_cond(device, 1000, 'numpy', alpha=100)
 # Zoom in on Keops times
 ############################
 #
-# Let's consider the Keops conjugate gradients for large kernels.
+# Let's consider the Keops conjugate gradients for large kernels. Scipy's algorithm explodes in time for
+# :math:`n\geq 50000` so we only consider the keops implementations here.
 #
 
 
