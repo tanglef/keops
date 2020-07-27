@@ -120,7 +120,7 @@ functions = [(scipy_cg, "numpy"),
              (dic_cg_np, "numpy"), (dic_cg_tch, "torch")]
 
 sizes_d = [10, 50, 75, 100, 150] # dimension of each point
-reps =    [10, 5,  5,  5,   5]
+reps =    [5, 5,  5,  5,   5]
 
 
 def compute_error(func, pack, result, errors, x, b, alpha, gamma, aliases):
@@ -230,7 +230,7 @@ for i in range(len(functions)):
     plt.plot(sizes_d, list_times[i], label=labels[i])
 plt.xscale('log')
 plt.yscale('log')
-plt.xlabel(r"Kernel made from {} points of size {} solving {} system.".format(n, d, dv))
+plt.xlabel(r"Kernel made from {} points of size {} solving {} system.".format(n, 'd', dv))
 plt.ylabel("Computational time (s)")
 plt.legend()
 plt.subplot(122)
@@ -238,7 +238,7 @@ for i in range(len(functions)):
     plt.plot(sizes_d, list_errors[i], label=labels[i])
 plt.xscale('log')
 plt.yscale('log')
-plt.xlabel(r"Kernel made from {} points of size {} solving {} system.".format(n, d, dv))
+plt.xlabel(r"Kernel made from {} points of size {} solving {} system.".format(n, 'd', dv))
 plt.ylabel(r"Error $||Ax_{k_{end}} - b||^2$")
 plt.legend()
 plt.tight_layout()
