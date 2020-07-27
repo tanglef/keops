@@ -437,3 +437,79 @@ plt.xlabel(r"Kernel of size $n\times n$")
 plt.ylabel(r"Error $||Ax_{k_{end}} -b||^2$")
 plt.legend()
 plt.show()
+
+###########################
+# Random points
+###########################
+#
+# Let's now use random values for :math:`x_i`.
+
+def to_bench(funcpack, size, rep):
+    global use_cuda
+    importlib.reload(torch)
+    if device == 'cuda':
+        torch.cuda.manual_seed_all(112358)
+    else:
+        torch.manual_seed(112358)
+    code = "func(x, b, gamma, alpha)"
+    func, pack = funcpack
+
+    times = []
+    errors = []
+
+    if use_cuda:
+        torch.cuda.synchronize()
+    for i in range(rep):
+
+        x = torch.linspace(1/size, 1, size, dtype=torch.float32,
+                           device=device).reshape(size, 1)
+        b = torch.randn(size, 1, device=device, dtype=torch.float32)
+        # kernel bandwidth
+        gamma = torch.ones(
+            1, device=device, dtype=torch.float32) * .5 / .01 ** 2
+        # regularization
+        alpha = torch.ones(1, device=device, dtype=torch.float32) * 2
+
+        if pack == 'numpy':
+            x, b = x.cpu().numpy().astype("float32"), b.cpu().numpy().astype("float32")
+            gamma, alpha = gamma.cpu().numpy().astype(
+                "float32"), alpha.cpu().numpy().astype("float32")
+
+        if i == 0:
+            exec(code, locals())  # Warmup run, to compile and load everything
+
+        start = time.perf_counter()
+        result = func(x, b, gamma, alpha)
+        if use_cuda:
+            torch.cuda.synchronize()
+
+        times.append(time.perf_counter() - start)
+        errors = compute_error(func, pack, result, errors, x, b, alpha, gamma)
+
+    return sum(times)/rep, sum(errors)/rep
+
+
+list_times, list_errors = global_bench(functions, sizes, reps)
+labels = ["scipy + keops", "keops_np", "keops_tch",
+          "dico + keops_np", "dico + keops_tch"]
+
+plt.style.use('ggplot')
+plt.figure(figsize=(20,10))
+plt.subplot(121)
+for i in range(len(functions)):
+    plt.plot(sizes, list_times[i], label=labels[i])
+plt.xscale('log')
+plt.yscale('log')
+plt.xlabel(r"Kernel of size $n\times n$")
+plt.ylabel("Computational time (s)")
+plt.legend()
+plt.subplot(122)
+for i in range(len(functions)):
+    plt.plot(sizes, list_errors[i], label=labels[i])
+plt.xscale('log')
+plt.yscale('log')
+plt.xlabel(r"Kernel of size $n\times n$")
+plt.ylabel(r"Error $||Ax_{k_{end}} -b||^2$")
+plt.legend()
+plt.tight_layout()
+plt.show()
